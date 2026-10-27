@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #14221c;
+  --forest: #1c3d30;
+  --clay: #c45c26;
+  --clay-dark: #9a4318;
+  --sand: #f4eee4;
+  --paper: #fbf8f2;
+  --line: #e3d9c9;
+  --muted: #6b6258;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-forest: var(--forest);
+  --color-clay: var(--clay);
+  --color-clay-dark: var(--clay-dark);
+  --color-sand: var(--sand);
+  --color-paper: var(--paper);
+  --color-line: var(--line);
+  --color-muted: var(--muted);
+  --font-sans: var(--font-manrope);
+  --font-display: var(--font-fraunces);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans), sans-serif;
+}
+
+.display {
+  font-family: var(--font-display), serif;
+}
+
+.court-grid {
+  background-image:
+    linear-gradient(to right, rgb(28 61 48 / 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(28 61 48 / 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
