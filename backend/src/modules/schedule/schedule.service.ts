@@ -48,7 +48,7 @@ export class ScheduleService {
     );
 
     if (!classGroup) {
-      throw Errors.notFound("Turma");
+      throw Errors.notFound("Class");
     }
 
     const schedules = (classGroup.class_schedules ?? []) as Array<{
@@ -58,7 +58,7 @@ export class ScheduleService {
     }>;
 
     if (schedules.length === 0) {
-      throw Errors.validation({ schedules: "Turma sem horário recorrente." });
+      throw Errors.validation({ schedules: "NO_SCHEDULE" });
     }
 
     const rows: Array<{
@@ -106,7 +106,7 @@ export class ScheduleService {
     );
 
     if (!session) {
-      throw Errors.notFound("Aula");
+      throw Errors.notFound("Session");
     }
 
     return unwrap(

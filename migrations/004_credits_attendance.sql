@@ -1,6 +1,3 @@
--- Turma Certa · 004
--- Créditos de aula, sessões da agenda e presença / reposição.
-
 create table if not exists public.lesson_credits (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,

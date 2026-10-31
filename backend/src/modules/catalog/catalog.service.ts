@@ -39,7 +39,7 @@ export class CatalogService {
     );
 
     if (!unit) {
-      throw Errors.notFound("Unidade");
+      throw Errors.notFound("Unit");
     }
 
     return unwrap(

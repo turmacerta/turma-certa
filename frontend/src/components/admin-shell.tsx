@@ -3,67 +3,66 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LayoutDashboard, LogOut, School } from "lucide-react";
-import { BrandMark } from "./brand";
-import { cn } from "./ui";
+import { useI18n } from "@/lib/i18n";
+import { ROUTES } from "@/lib/navigation";
 import { createBrowserSupabase } from "@/lib/supabase/client";
-
-const NAV = [
-  { href: "/admin", label: "Clientes", icon: LayoutDashboard },
-];
+import { BrandMark } from "./brand";
+import { LanguageSwitch } from "./language-switch";
+import { useConfirm } from "./overlay";
+import { ThemeToggle } from "./theme-toggle";
+import { Badge, cn } from "./ui";
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
+  const { t } = useI18n();
   const pathname = usePathname();
   const router = useRouter();
+  const confirm = useConfirm();
 
   async function signOut() {
-    const supabase = createBrowserSupabase();
-    await supabase?.auth.signOut();
-    router.replace("/login");
+    const ok = await confirm({ title: t.shell.signOutTitle, description: t.shell.signOutText, confirmLabel: t.common.signOut });
+    if (!ok) return;
+    await createBrowserSupabase()?.auth.signOut();
+    router.replace(`${ROUTES.login}?notice=signed-out`);
   }
 
+  const linkClass = "flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-semibold transition";
+  const clientsActive = pathname === ROUTES.admin || pathname.startsWith(`${ROUTES.admin}/`);
+
   return (
-    <div className="min-h-screen bg-paper lg:grid lg:grid-cols-[260px_1fr]">
-      <aside className="border-b border-line bg-forest p-5 text-sand lg:border-b-0">
-        <BrandMark />
-        <p className="mt-3 text-xs uppercase tracking-[0.18em] text-sand/70">
-          Backoffice
-        </p>
-        <nav className="mt-8 grid gap-1">
-          {NAV.map((item) => {
-            const Icon = item.icon;
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium",
-                  active ? "bg-sand text-forest" : "text-sand/80 hover:bg-white/10",
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            );
-          })}
+    <div className="min-h-screen lg:grid lg:grid-cols-[264px_1fr]">
+      <aside className="flex flex-col gap-6 border-b border-line bg-surface/80 px-3 py-5 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
+        <div className="flex items-center justify-between gap-2 px-2">
+          <Link href={ROUTES.admin}>
+            <BrandMark />
+          </Link>
+          <Badge tone="accent">{t.nav.backoffice}</Badge>
+        </div>
+        <nav className="grid gap-1" aria-label={t.nav.main}>
+          <Link
+            href={ROUTES.admin}
+            aria-current={clientsActive ? "page" : undefined}
+            className={cn(linkClass, clientsActive ? "bg-primary text-on-primary shadow-sm" : "text-muted hover:bg-surface-2 hover:text-ink")}
+          >
+            <LayoutDashboard className="h-[18px] w-[18px]" />
+            {t.admin.clients}
+          </Link>
+          <Link href={ROUTES.home} className={cn(linkClass, "text-muted hover:bg-surface-2 hover:text-ink")}>
+            <School className="h-[18px] w-[18px]" />
+            {t.admin.schoolApp}
+          </Link>
         </nav>
-        <Link
-          href="/app"
-          className="mt-8 flex items-center gap-2 text-sm text-sand/70 hover:text-sand"
-        >
-          <School className="h-4 w-4" />
-          App da escola
-        </Link>
-        <button
-          type="button"
-          onClick={signOut}
-          className="mt-4 flex items-center gap-2 text-sm text-sand/70 hover:text-sand"
-        >
-          <LogOut className="h-4 w-4" />
-          Sair
-        </button>
+        <div className="mt-auto grid gap-3 px-2">
+          <div className="flex items-center gap-2">
+            <LanguageSwitch />
+            <ThemeToggle />
+          </div>
+          <button type="button" onClick={signOut} className={cn(linkClass, "-mx-2 text-muted hover:bg-surface-2 hover:text-danger")}>
+            <LogOut className="h-[18px] w-[18px]" />
+            {t.common.signOut}
+          </button>
+        </div>
       </aside>
-      <main className="p-5 lg:p-8">{children}</main>
+      <main className="mx-auto w-full max-w-7xl px-4 py-6 lg:px-8 lg:py-8">{children}</main>
     </div>
   );
 }

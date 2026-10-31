@@ -68,7 +68,7 @@ export class ClassService {
     );
 
     if (!classGroup) {
-      throw Errors.notFound("Turma");
+      throw Errors.notFound("Class");
     }
 
     return classGroup;
@@ -128,7 +128,7 @@ export class ClassService {
       occupancy &&
       (occupancy.vacancies as number) <= 0
     ) {
-      throw Errors.conflict("Turma sem vagas. Coloque o aluno na lista de espera.");
+      throw Errors.conflict("The class is full. Add the student to the waitlist.", "CLASS_FULL");
     }
 
     const student = unwrap(
@@ -141,7 +141,7 @@ export class ClassService {
     );
 
     if (!student) {
-      throw Errors.notFound("Aluno");
+      throw Errors.notFound("Student");
     }
 
     return {
@@ -210,7 +210,7 @@ export class ClassService {
     );
 
     if (!occupancy || (occupancy.vacancies as number) <= 0) {
-      return { notified: [], skipped: "Turma sem vagas no momento." };
+      return { notified: [], skipped: "CLASS_FULL" };
     }
 
     const alerts = unwrap(

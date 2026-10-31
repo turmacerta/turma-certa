@@ -1,6 +1,3 @@
--- Turma Certa · 005
--- Planos que a escola vende ao aluno, faturamento, renovação e alerta de vaga.
-
 create table if not exists public.billing_plans (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,

@@ -1,6 +1,3 @@
--- Turma Certa · 006
--- Visões e funções de domínio usadas pelo backend.
-
 create or replace view public.class_group_occupancy
 with (security_invoker = true) as
 select

@@ -45,7 +45,7 @@ export const requireAuth = asyncHandler(async (req, _res, next) => {
 export function requireOrgStaff(req: Request, _res: Response, next: NextFunction) {
   const orgId = req.params.orgId;
   if (!orgId) {
-    throw Errors.validation({ orgId: "Organização obrigatória." });
+    throw Errors.validation({ orgId: "Organization is required." });
   }
 
   const membership = req.memberships?.find((item) => item.organizationId === orgId);
@@ -59,7 +59,7 @@ export function requireOrgStaff(req: Request, _res: Response, next: NextFunction
 export function requireOrgMember(req: Request, _res: Response, next: NextFunction) {
   const orgId = req.params.orgId;
   if (!orgId) {
-    throw Errors.validation({ orgId: "Organização obrigatória." });
+    throw Errors.validation({ orgId: "Organization is required." });
   }
 
   const membership = req.memberships?.find((item) => item.organizationId === orgId);

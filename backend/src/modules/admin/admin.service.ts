@@ -28,7 +28,7 @@ function asOwner(profile: unknown): OwnerRow["profile"] {
   }
   const row = value as { full_name?: string; email?: string | null };
   return {
-    full_name: row.full_name ?? "Sem dono",
+    full_name: row.full_name ?? "",
     email: row.email ?? null,
   };
 }
@@ -38,7 +38,7 @@ function withOwners(orgs: OverviewRow[], owners: OwnerRow[]) {
     owners.map((row) => [
       row.organization_id,
       {
-        fullName: row.profile?.full_name ?? "Sem dono",
+        fullName: row.profile?.full_name || null,
         email: row.profile?.email ?? null,
       },
     ]),
@@ -46,7 +46,7 @@ function withOwners(orgs: OverviewRow[], owners: OwnerRow[]) {
 
   return orgs.map((org) => ({
     ...org,
-    owner: ownerByOrg.get(org.id) ?? { fullName: "Sem dono", email: null },
+    owner: ownerByOrg.get(org.id) ?? { fullName: null, email: null },
   }));
 }
 
@@ -77,7 +77,7 @@ export class AdminService {
     ) as OverviewRow | null;
 
     if (!org) {
-      throw Errors.notFound("Escola");
+      throw Errors.notFound("Organization");
     }
 
     const owners = (
@@ -95,7 +95,7 @@ export class AdminService {
 
     const [detail] = withOwners([org], owners);
     if (!detail) {
-      throw Errors.notFound("Escola");
+      throw Errors.notFound("Organization");
     }
     return detail;
   }
@@ -111,7 +111,7 @@ export class AdminService {
     );
 
     if (!organization) {
-      throw Errors.notFound("Escola");
+      throw Errors.notFound("Organization");
     }
 
     return organization;

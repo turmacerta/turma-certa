@@ -54,7 +54,7 @@ export class TeacherService {
     );
 
     if (!teacher) {
-      throw Errors.notFound("Professor");
+      throw Errors.notFound("Teacher");
     }
 
     return teacher;

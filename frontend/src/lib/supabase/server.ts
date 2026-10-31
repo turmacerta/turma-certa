@@ -22,9 +22,7 @@ export async function createServerSupabase() {
             cookiesToSet.forEach(({ name, value, options }) => {
               cookieStore.set(name, value, options);
             });
-          } catch {
-            // Server Components cannot always set cookies.
-          }
+          } catch {}
         },
       },
     },

@@ -1,7 +1,3 @@
--- Turma Certa · 008
--- Permissões da Data API. Necessário se "Automatically expose new tables"
--- estiver desligado. O backend usa service_role; RLS continua valendo para anon.
-
 grant usage on schema public to anon, authenticated, service_role;
 
 grant all on all tables in schema public to anon, authenticated, service_role;

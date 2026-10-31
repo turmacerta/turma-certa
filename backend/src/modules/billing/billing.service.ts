@@ -93,7 +93,7 @@ export class BillingService {
     );
 
     if (!plan) {
-      throw Errors.notFound("Plano");
+      throw Errors.notFound("Plan");
     }
 
     const student = unwrap(
@@ -106,7 +106,7 @@ export class BillingService {
     );
 
     if (!student) {
-      throw Errors.notFound("Aluno");
+      throw Errors.notFound("Student");
     }
 
     const start = new Date().toISOString().slice(0, 10);
@@ -145,7 +145,7 @@ export class BillingService {
           student_id: input.studentId,
           kind: "regular",
           quantity: plan.lessons_per_cycle,
-          reason: "Adesão de plano",
+          reason: "plan_signup",
           expires_at: end,
         }),
       );
@@ -165,7 +165,7 @@ export class BillingService {
     );
 
     if (!subscription) {
-      throw Errors.notFound("Assinatura");
+      throw Errors.notFound("Subscription");
     }
 
     return unwrap(

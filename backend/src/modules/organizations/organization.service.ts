@@ -30,7 +30,7 @@ export class OrganizationService {
     );
 
     if (!organization) {
-      throw Errors.notFound("Organização");
+      throw Errors.notFound("Organization");
     }
 
     return organization;
@@ -80,7 +80,7 @@ export class OrganizationService {
     );
 
     if (!organization) {
-      throw Errors.notFound("Organização");
+      throw Errors.notFound("Organization");
     }
 
     return organization;

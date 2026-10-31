@@ -40,7 +40,7 @@ export class StudentService {
     );
 
     if (!student) {
-      throw Errors.notFound("Aluno");
+      throw Errors.notFound("Student");
     }
 
     const balance = unwrap(
@@ -74,7 +74,7 @@ export class StudentService {
     );
 
     if (!student) {
-      throw Errors.notFound("Aluno");
+      throw Errors.notFound("Student");
     }
 
     return student;

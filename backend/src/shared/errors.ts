@@ -12,17 +12,17 @@ export class AppError extends Error {
 
 export const Errors = {
   unauthenticated: () =>
-    new AppError("Faça login para continuar.", 401, "UNAUTHENTICATED"),
+    new AppError("Sign in to continue.", 401, "UNAUTHENTICATED"),
   forbidden: () =>
-    new AppError("Você não tem permissão para esta ação.", 403, "FORBIDDEN"),
+    new AppError("You do not have permission for this action.", 403, "FORBIDDEN"),
   notFound: (entity: string) =>
-    new AppError(`${entity} não encontrado.`, 404, "NOT_FOUND"),
-  conflict: (message: string) => new AppError(message, 409, "CONFLICT"),
+    new AppError(`${entity} not found.`, 404, "NOT_FOUND", { entity }),
+  conflict: (message: string, code = "CONFLICT") => new AppError(message, 409, code),
   validation: (details: unknown) =>
-    new AppError("Dados inválidos.", 400, "VALIDATION_ERROR", details),
+    new AppError("Invalid data.", 400, "VALIDATION_ERROR", details),
   supabaseMissing: () =>
     new AppError(
-      "Supabase ainda não está configurado. Preencha o .env e rode as migrations.",
+      "Supabase is not configured. Fill in .env and run the migrations.",
       503,
       "SUPABASE_NOT_CONFIGURED",
     ),
