@@ -9,7 +9,9 @@ import { useI18n } from "@/lib/i18n";
 import type { Credit, Named, Student } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { Dialog, Drawer, useConfirm, useToast } from "./overlay";
-import { Avatar, Badge, Button, ErrorState, Field, InlineAlert, LoadingList, Select, Stepper, Tabs, TextArea } from "./ui";
+import { PhotoInput } from "./photo-input";
+import { useOrg } from "./org-provider";
+import { Badge, Button, ErrorState, Field, InlineAlert, LoadingList, Segmented, Select, Stepper, Tabs, TextArea } from "./ui";
 
 type StudentDraft = {
   fullName: string;
@@ -20,6 +22,10 @@ type StudentDraft = {
   emergencyContactPhone: string;
   notes: string;
   classLevelId: string;
+  guardianName: string;
+  guardianEmail: string;
+  guardianPhone: string;
+  hasGuardian: boolean;
 };
 
 const EMPTY: StudentDraft = {
@@ -31,9 +37,15 @@ const EMPTY: StudentDraft = {
   emergencyContactPhone: "",
   notes: "",
   classLevelId: "",
+  guardianName: "",
+  guardianEmail: "",
+  guardianPhone: "",
+  hasGuardian: false,
 };
 
 const CREDIT_DAYS = 30;
+
+type AccessResult = "invited" | "linked" | "failed";
 
 function maskPhone(value: string) {
   const digits = value.replace(/\D/g, "").slice(0, 11);
@@ -71,6 +83,10 @@ function draftFrom(student: Student): StudentDraft {
     emergencyContactPhone: student.emergency_contact_phone ?? "",
     notes: student.notes ?? "",
     classLevelId: student.class_level?.id ?? "",
+    guardianName: student.guardian?.full_name ?? "",
+    guardianEmail: student.guardian?.email ?? "",
+    guardianPhone: student.guardian?.phone ?? "",
+    hasGuardian: Boolean(student.guardian),
   };
 }
 
@@ -84,27 +100,60 @@ function payload(draft: StudentDraft) {
     emergencyContactPhone: draft.emergencyContactPhone.trim() || undefined,
     notes: draft.notes.trim() || undefined,
     classLevelId: draft.classLevelId || undefined,
+    guardian: draft.hasGuardian
+      ? {
+          fullName: draft.guardianName.trim(),
+          email: draft.guardianEmail.trim() || undefined,
+          phone: draft.guardianPhone.trim() || undefined,
+        }
+      : undefined,
   };
 }
 
+function isPhone(value: string) {
+  return value.replace(/\D/g, "").length >= 10;
+}
+
 function isDraftValid(draft: StudentDraft) {
-  return draft.fullName.trim().length >= 2 && (!draft.email || isValidEmail(draft.email)) && (!draft.birthDate || Boolean(toIso(draft.birthDate)));
+  const withGuardian = draft.hasGuardian;
+  const contactOk = withGuardian
+    ? draft.guardianName.trim().length >= 2 && isValidEmail(draft.guardianEmail.trim()) && isPhone(draft.guardianPhone)
+    : isValidEmail(draft.email.trim()) && isPhone(draft.phone);
+  return (
+    draft.fullName.trim().length >= 2 &&
+    (!draft.email || isValidEmail(draft.email)) &&
+    (!draft.birthDate || Boolean(toIso(draft.birthDate))) &&
+    contactOk
+  );
 }
 
 function StudentFields({ draft, setDraft, levels }: { draft: StudentDraft; setDraft: (draft: StudentDraft) => void; levels: Named[] }) {
   const { t } = useI18n();
   const form = t.students.form;
+  const withGuardian = draft.hasGuardian;
+  const [more, setMore] = useState(() => Boolean(draft.emergencyContactName || draft.emergencyContactPhone || draft.notes));
   const set = (key: keyof StudentDraft) => (value: string) => setDraft({ ...draft, [key]: value });
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2">
         <Field label={form.fullName} value={draft.fullName} onChange={(event) => set("fullName")(event.target.value)} autoFocus />
       </div>
+      <div className="sm:col-span-2">
+        <Segmented
+          label={form.contactOwner}
+          value={draft.hasGuardian ? "guardian" : "self"}
+          onChange={(value) => setDraft({ ...draft, hasGuardian: value === "guardian" })}
+          options={[
+            { value: "self", label: form.contactSelf },
+            { value: "guardian", label: form.contactGuardian },
+          ]}
+        />
+      </div>
       <Field
         label={form.email}
         type="email"
         inputMode="email"
-        optional
+        optional={withGuardian}
         value={draft.email}
         onChange={(event) => set("email")(event.target.value)}
         error={draft.email && !isValidEmail(draft.email) ? form.checkEmail : null}
@@ -112,18 +161,10 @@ function StudentFields({ draft, setDraft, levels }: { draft: StudentDraft; setDr
       <Field
         label={form.phone}
         inputMode="tel"
-        optional
+        optional={withGuardian}
         value={draft.phone}
         onChange={(event) => set("phone")(maskPhone(event.target.value))}
         placeholder={form.phonePlaceholder}
-      />
-      <Field
-        label={form.birthDate}
-        inputMode="numeric"
-        optional
-        value={draft.birthDate}
-        onChange={(event) => set("birthDate")(maskDate(event.target.value))}
-        placeholder={form.birthDatePlaceholder}
       />
       <Select
         label={form.level}
@@ -133,22 +174,65 @@ function StudentFields({ draft, setDraft, levels }: { draft: StudentDraft; setDr
         options={[{ value: "", label: form.levelLater }, ...levels.map((level) => ({ value: level.id, label: level.name }))]}
       />
       <Field
-        label={form.emergencyName}
+        label={form.birthDate}
+        inputMode="numeric"
         optional
-        value={draft.emergencyContactName}
-        onChange={(event) => set("emergencyContactName")(event.target.value)}
-        placeholder={form.emergencyNamePlaceholder}
+        value={draft.birthDate}
+        onChange={(event) => set("birthDate")(maskDate(event.target.value))}
+        placeholder={form.birthDatePlaceholder}
       />
-      <Field
-        label={form.emergencyPhone}
-        inputMode="tel"
-        optional
-        value={draft.emergencyContactPhone}
-        onChange={(event) => set("emergencyContactPhone")(maskPhone(event.target.value))}
-      />
-      <div className="sm:col-span-2">
-        <TextArea label={form.notes} optional value={draft.notes} onChange={(event) => set("notes")(event.target.value)} placeholder={form.notesPlaceholder} />
-      </div>
+      {withGuardian ? (
+        <fieldset className="grid gap-4 rounded-2xl border border-primary/30 bg-primary-soft p-4 sm:col-span-2 sm:grid-cols-2">
+          <legend className="sr-only">{form.guardianTitle}</legend>
+          <div className="grid gap-1 sm:col-span-2">
+            <p className="font-semibold">{form.guardianTitle}</p>
+            <p className="text-sm text-muted">{form.guardianText}</p>
+          </div>
+          <div className="sm:col-span-2">
+            <Field label={form.guardianName} value={draft.guardianName} onChange={(event) => set("guardianName")(event.target.value)} />
+          </div>
+          <Field
+            label={form.guardianEmail}
+            type="email"
+            inputMode="email"
+            value={draft.guardianEmail}
+            onChange={(event) => set("guardianEmail")(event.target.value)}
+            error={draft.guardianEmail && !isValidEmail(draft.guardianEmail) ? form.checkEmail : null}
+          />
+          <Field
+            label={form.guardianPhone}
+            inputMode="tel"
+            value={draft.guardianPhone}
+            onChange={(event) => set("guardianPhone")(maskPhone(event.target.value))}
+            placeholder={form.phonePlaceholder}
+          />
+        </fieldset>
+      ) : null}
+      {more ? (
+        <>
+          <Field
+            label={form.emergencyName}
+            optional
+            value={draft.emergencyContactName}
+            onChange={(event) => set("emergencyContactName")(event.target.value)}
+            placeholder={form.emergencyNamePlaceholder}
+          />
+          <Field
+            label={form.emergencyPhone}
+            inputMode="tel"
+            optional
+            value={draft.emergencyContactPhone}
+            onChange={(event) => set("emergencyContactPhone")(maskPhone(event.target.value))}
+          />
+          <div className="sm:col-span-2">
+            <TextArea label={form.notes} optional value={draft.notes} onChange={(event) => set("notes")(event.target.value)} placeholder={form.notesPlaceholder} />
+          </div>
+        </>
+      ) : (
+        <button type="button" onClick={() => setMore(true)} className="justify-self-start text-sm font-semibold text-primary hover:underline sm:col-span-2">
+          {form.moreDetails}
+        </button>
+      )}
     </div>
   );
 }
@@ -174,8 +258,12 @@ function StudentCreateDialogBody({ open, orgId, levels, onClose, onCreated }: Cr
     setSaving(true);
     setError(null);
     try {
-      await api(`/api/v1/organizations/${orgId}/students`, { method: "POST", body: JSON.stringify(payload(draft)) });
-      toast({ message: t.students.form.created(draft.fullName.trim()) });
+      const created = await api<{ access: AccessResult }>(`/api/v1/organizations/${orgId}/students`, { method: "POST", body: JSON.stringify(payload(draft)) });
+      const email = draft.hasGuardian ? draft.guardianEmail.trim() : draft.email.trim();
+      toast({
+        message: t.access[created.access](draft.fullName.trim(), email),
+        tone: created.access === "failed" ? "error" : undefined,
+      });
       onCreated();
       onClose();
     } catch (err) {
@@ -219,6 +307,7 @@ export function StudentDetailDrawer(props: DetailDrawerProps) {
 
 function StudentDetailDrawerBody({ orgId, student, levels, onClose, onChanged }: DetailDrawerProps) {
   const { t, format } = useI18n();
+  const { creditDays } = useOrg();
   const toast = useToast();
   const confirm = useConfirm();
   const [tab, setTab] = useState<"profile" | "credits">("profile");
@@ -232,6 +321,22 @@ function StudentDetailDrawerBody({ orgId, student, levels, onClose, onChanged }:
   const dirty = student ? JSON.stringify(draft) !== JSON.stringify(draftFrom(student)) : false;
   const today = new Date().toISOString().slice(0, 10);
   const balance = (credits.data ?? []).filter((item) => !item.expires_at || item.expires_at >= today).reduce((sum, item) => sum + item.quantity, 0);
+
+  const [granting, setGranting] = useState(false);
+
+  async function grantAccess() {
+    if (!student) return;
+    setGranting(true);
+    try {
+      const result = await api<{ email: string; invited: boolean }>(`${base}/${student.id}/access`, { method: "POST" });
+      toast({ message: result.invited ? detail.accessInvited(result.email) : detail.accessGranted(result.email) });
+      onChanged();
+    } catch (err) {
+      toast({ message: errorMessage(err, t), tone: "error" });
+    } finally {
+      setGranting(false);
+    }
+  }
 
   async function save() {
     if (!student || !isDraftValid(draft)) {
@@ -256,7 +361,7 @@ function StudentDetailDrawerBody({ orgId, student, levels, onClose, onChanged }:
     const giving = sign > 0;
     const ok = await confirm({
       title: giving ? detail.giveTitle : detail.removeTitle,
-      description: giving ? detail.giveText(student.full_name, quantity) : detail.removeText(student.full_name, quantity),
+      description: giving ? detail.giveText(student.full_name, quantity, creditDays) : detail.removeText(student.full_name, quantity),
       confirmLabel: giving ? detail.give : detail.remove,
       tone: giving ? "default" : "danger",
     });
@@ -297,7 +402,13 @@ function StudentDetailDrawerBody({ orgId, student, levels, onClose, onChanged }:
         student ? (
           <span className="flex items-center gap-2">
             {student.class_level ? <Badge tone="primary">{student.class_level.name}</Badge> : <Badge tone="neutral">{t.common.noLevel}</Badge>}
-            {student.email ? <span className="truncate">{student.email}</span> : null}
+            {student.guardian ? (
+              <span className="truncate">
+                {t.students.form.guardianTitle}: {student.guardian.full_name}
+              </span>
+            ) : student.email ? (
+              <span className="truncate">{student.email}</span>
+            ) : null}
           </span>
         ) : null
       }
@@ -316,11 +427,29 @@ function StudentDetailDrawerBody({ orgId, student, levels, onClose, onChanged }:
     >
       <div className="grid gap-6">
         <div className="flex items-center gap-4">
-          <Avatar name={student?.full_name ?? "?"} size="lg" />
-          <div className="min-w-0">
+          {student ? (
+            <PhotoInput
+              name={student.full_name}
+              src={student.photo_url}
+              onUpload={async (dataUrl) => {
+                await api(`${base}/${student.id}/photo`, { method: "PUT", body: JSON.stringify({ dataUrl }) });
+                onChanged();
+              }}
+            />
+          ) : null}
+          <div className="min-w-0 flex-1">
             <p className="truncate font-semibold">{student?.full_name}</p>
             <p className="text-sm text-muted">{student?.phone ?? t.common.noPhone}</p>
           </div>
+          {student ? (
+            student.profile_id || student.guardian?.profile_id ? (
+              <Badge tone="success">{detail.hasAccess}</Badge>
+            ) : (
+              <Button size="sm" variant="outline" loading={granting} onClick={() => void grantAccess()}>
+                {detail.grantAccess}
+              </Button>
+            )
+          ) : null}
         </div>
         <Tabs
           value={tab}

@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { GraduationCap, Plus } from "lucide-react";
-import { DataTable, SearchInput, Toolbar, ViewSwitcher } from "@/components/data-view";
+import { SearchInput, Toolbar, Pagination, usePaged } from "@/components/data-view";
 import { useOrg } from "@/components/org-provider";
 import { Dialog, Drawer, useToast } from "@/components/overlay";
+import { PhotoInput } from "@/components/photo-input";
 import { Avatar, Badge, Button, Card, cn, EmptyState, ErrorState, Field, LoadingList, PageHeader, TextArea } from "@/components/ui";
 import { api } from "@/lib/api";
 import { isValidEmail } from "@/lib/auth";
@@ -14,25 +15,35 @@ import { hoursBetween, normalize } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { SportBadge, SportIcon } from "@/lib/sports";
 import type { ClassRow, Named, Teacher } from "@/lib/types";
-import { useApi, usePersistentState } from "@/lib/use-api";
+import { useApi } from "@/lib/use-api";
 
-const MODES = ["cards", "table"] as const;
-const WEEKLY_TARGET = 30;
 
 type Load = { hours: number; classes: ClassRow[]; students: number; sports: Set<string> };
 
-function formatHours(hours: number) {
-  return hours.toFixed(hours % 1 ? 1 : 0);
-}
 
 export default function TeachersPage() {
-  const { t, locale } = useI18n();
-  const { orgId } = useOrg();
+  const { t, locale, format } = useI18n();
+  const { orgId, can } = useOrg();
   const base = `/api/v1/organizations/${orgId}`;
   const teachers = useApi<Teacher[]>(`${base}/teachers`);
   const classes = useApi<ClassRow[]>(`${base}/classes`);
   const sports = useApi<Named[]>(`${base}/sports`);
-  const [mode, setMode] = usePersistentState("tc-view-teachers", "cards", MODES);
+  const toast = useToast();
+  const [granting, setGranting] = useState(false);
+
+  async function grantAccess(teacherId: string) {
+    setGranting(true);
+    try {
+      const result = await api<{ email: string; invited: boolean }>(`/api/v1/organizations/${orgId}/teachers/${teacherId}/access`, { method: "POST" });
+      toast({ message: result.invited ? t.access.invitedTo(result.email) : t.access.linkedTo(result.email) });
+      await teachers.reload();
+    } catch (err) {
+      toast({ message: errorMessage(err, t), tone: "error" });
+    } finally {
+      setGranting(false);
+    }
+  }
+
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -52,27 +63,26 @@ export default function TeachersPage() {
   }, [classes.data]);
 
   const visible = (teachers.data ?? []).filter((teacher) => !query || normalize(teacher.full_name).includes(normalize(query)));
+  const paged = usePaged(visible, String(visible.length));
   const selected = teachers.data?.find((teacher) => teacher.id === selectedId) ?? null;
   const selectedLoad = selected ? load.get(selected.id) : undefined;
 
   return (
-    <div className="grid gap-6 animate-fade-up">
+    <div className="grid grid-cols-1 gap-6 animate-fade-up">
       <PageHeader
-        eyebrow={t.teachers.eyebrow}
         title={t.teachers.title}
-        description={t.teachers.description}
+        description={teachers.data ? t.teachers.description(teachers.data.length) : undefined}
         actions={
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="h-4 w-4" />
-            {t.teachers.newTeacher}
-          </Button>
+          can("teachers.manage") ? (
+            <Button onClick={() => setCreating(true)}>
+              <Plus className="h-4 w-4" />
+              {t.teachers.newTeacher}
+            </Button>
+          ) : null
         }
       />
       <Toolbar>
         <SearchInput value={query} onChange={setQuery} placeholder={t.teachers.searchPlaceholder} className="min-w-56 flex-1 sm:max-w-xs" />
-        <div className="ml-auto">
-          <ViewSwitcher value={mode} onChange={setMode} modes={MODES} />
-        </div>
       </Toolbar>
 
       {teachers.loading ? <LoadingList rows={4} /> : null}
@@ -93,42 +103,19 @@ export default function TeachersPage() {
         />
       ) : null}
 
-      {visible.length > 0 && mode === "cards" ? (
+      {visible.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {visible.map((teacher) => {
+          {paged.items.map((teacher) => {
             const entry = load.get(teacher.id);
-            const hours = entry?.hours ?? 0;
-            const ratio = Math.min(hours / WEEKLY_TARGET, 1);
             return (
-              <Card key={teacher.id} onClick={() => setSelectedId(teacher.id)} className="grid gap-4">
-                <div className="flex items-center gap-3">
-                  <Avatar name={teacher.full_name} size="lg" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{teacher.full_name}</p>
-                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-muted">
-                      {[...(entry?.sports ?? [])].map((name) => (
-                        <span key={name} className="inline-flex items-center gap-1 text-xs">
-                          <SportIcon name={name} className="h-3.5 w-3.5" />
-                          {name}
-                        </span>
-                      ))}
-                      {entry ? null : <span className="text-xs">{t.teachers.noClasses}</span>}
-                    </div>
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <Metric label={t.teachers.hoursPerWeek} value={formatHours(hours)} />
-                  <Metric label={t.teachers.classes} value={String(entry?.classes.length ?? 0)} />
-                  <Metric label={t.teachers.students} value={String(entry?.students ?? 0)} />
-                </div>
-                <div className="grid gap-1.5">
-                  <div className="flex justify-between text-xs text-muted">
-                    <span>{t.teachers.weeklyLoad}</span>
-                    <span>{t.teachers.freeHours(Math.max(WEEKLY_TARGET - hours, 0).toFixed(0))}</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-surface-2">
-                    <div className={cn("h-full rounded-full", ratio > 0.9 ? "bg-warning" : "bg-primary")} style={{ width: `${ratio * 100}%` }} />
-                  </div>
+              <Card key={teacher.id} onClick={() => setSelectedId(teacher.id)} className="flex items-center gap-3">
+                <Avatar name={teacher.full_name} src={teacher.photo_url} size="lg" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold">{teacher.full_name}</p>
+                  <p className="truncate text-sm text-muted">{[...(entry?.sports ?? [])].join(", ") || t.teachers.noClasses}</p>
+                  {entry ? (
+                    <p className="tabular mt-1 text-xs text-muted">{t.teachers.summary(entry.classes.length, entry.students, format.hours(entry.hours))}</p>
+                  ) : null}
                 </div>
               </Card>
             );
@@ -136,46 +123,39 @@ export default function TeachersPage() {
         </div>
       ) : null}
 
-      {visible.length > 0 && mode === "table" ? (
-        <DataTable
-          columns={[
-            { label: t.teachers.columns.teacher },
-            { label: t.teachers.columns.sports },
-            { label: t.teachers.columns.classes },
-            { label: t.teachers.columns.students },
-            { label: t.teachers.columns.hours },
-            { label: t.teachers.columns.contact },
-          ]}
-        >
-          {visible.map((teacher) => {
-            const entry = load.get(teacher.id);
-            return (
-              <tr key={teacher.id} onClick={() => setSelectedId(teacher.id)} className="cursor-pointer transition hover:bg-surface-2">
-                <td className="px-4 py-3">
-                  <span className="flex items-center gap-3">
-                    <Avatar name={teacher.full_name} size="sm" />
-                    <span className="font-semibold">{teacher.full_name}</span>
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-muted">{[...(entry?.sports ?? [])].join(", ") || t.common.empty}</td>
-                <td className="tabular px-4 py-3">{entry?.classes.length ?? 0}</td>
-                <td className="tabular px-4 py-3">{entry?.students ?? 0}</td>
-                <td className="tabular px-4 py-3">{formatHours(entry?.hours ?? 0)}h</td>
-                <td className="px-4 py-3 text-muted">{teacher.phone ?? teacher.email ?? t.common.empty}</td>
-              </tr>
-            );
-          })}
-        </DataTable>
-      ) : null}
+      <Pagination {...paged} />
 
       <TeacherCreateDialog open={creating} orgId={orgId} sports={sports.data ?? []} onClose={() => setCreating(false)} onCreated={() => void teachers.reload()} />
 
       <Drawer open={Boolean(selected)} onClose={() => setSelectedId(null)} title={selected?.full_name ?? ""} subtitle={selected?.email ?? selected?.phone ?? undefined}>
         {selected ? (
           <div className="grid gap-6">
-            {selected.bio ? <p className="text-sm text-muted">{selected.bio}</p> : null}
+            <div className="flex items-center gap-4">
+              {can("teachers.manage") ? (
+                <PhotoInput
+                  name={selected.full_name}
+                  src={selected.photo_url}
+                  onUpload={async (dataUrl) => {
+                    await api(`/api/v1/organizations/${orgId}/teachers/${selected.id}/photo`, { method: "PUT", body: JSON.stringify({ dataUrl }) });
+                    await teachers.reload();
+                  }}
+                />
+              ) : (
+                <Avatar name={selected.full_name} src={selected.photo_url} size="lg" />
+              )}
+              <div className="min-w-0 flex-1">
+                {selected.bio ? <p className="text-sm text-muted">{selected.bio}</p> : null}
+              </div>
+              {selected.profile_id ? (
+                <Badge tone="success">{t.access.hasAccess}</Badge>
+              ) : can("teachers.manage") ? (
+                <Button size="sm" variant="outline" loading={granting} onClick={() => void grantAccess(selected.id)}>
+                  {t.access.grant}
+                </Button>
+              ) : null}
+            </div>
             <div className="grid grid-cols-3 gap-2 text-center">
-              <Metric label={t.teachers.hoursPerWeek} value={formatHours(selectedLoad?.hours ?? 0)} />
+              <Metric label={t.teachers.hoursPerWeek} value={format.hours(selectedLoad?.hours ?? 0)} />
               <Metric label={t.teachers.classes} value={String(selectedLoad?.classes.length ?? 0)} />
               <Metric label={t.teachers.students} value={String(selectedLoad?.students ?? 0)} />
             </div>
@@ -233,18 +213,18 @@ function TeacherCreateDialogBody({ open, orgId, sports, onClose, onCreated }: Te
   const [saving, setSaving] = useState(false);
   const form = t.teachers.form;
 
-  const valid = fullName.trim().length >= 2 && (!email || isValidEmail(email));
+  const valid = fullName.trim().length >= 2 && isValidEmail(email.trim()) && phone.replace(/D/g, "").length >= 10;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!valid || saving) return;
     setSaving(true);
     try {
-      await api(`/api/v1/organizations/${orgId}/teachers`, {
+      const created = await api<{ access: "invited" | "linked" | "failed" }>(`/api/v1/organizations/${orgId}/teachers`, {
         method: "POST",
-        body: JSON.stringify({ fullName: fullName.trim(), email: email.trim() || undefined, phone: phone.trim() || undefined, bio: bio.trim() || undefined, sportIds }),
+        body: JSON.stringify({ fullName: fullName.trim(), email: email.trim(), phone: phone.trim(), bio: bio.trim() || undefined, sportIds }),
       });
-      toast({ message: form.created(fullName.trim()) });
+      toast({ message: t.access[created.access](fullName.trim(), email.trim()), tone: created.access === "failed" ? "error" : undefined });
       onCreated();
       onClose();
     } catch (err) {
@@ -277,12 +257,11 @@ function TeacherCreateDialogBody({ open, orgId, sports, onClose, onCreated }: Te
           <Field
             label={form.email}
             type="email"
-            optional
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             error={email && !isValidEmail(email) ? t.auth.checkEmail : null}
           />
-          <Field label={form.phone} inputMode="tel" optional value={phone} onChange={(event) => setPhone(event.target.value)} />
+          <Field label={form.phone} inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} />
         </div>
         {sports.length ? (
           <div className="grid gap-2">

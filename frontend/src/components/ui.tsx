@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   forwardRef,
   useEffect,
@@ -11,14 +12,14 @@ import {
   type ReactNode,
   type TextareaHTMLAttributes,
 } from "react";
-import { Check, ChevronDown, Eye, EyeOff, Loader2, Minus, Plus, RefreshCw } from "lucide-react";
+import { Check, ChevronDown, CircleAlert, Eye, EyeOff, Inbox, Loader2, Minus, Plus, RefreshCw } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 
 export function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "outline";
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "outline" | "quiet-danger";
 type ButtonSize = "sm" | "md" | "lg";
 
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
@@ -27,6 +28,7 @@ const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   ghost: "bg-transparent text-ink hover:bg-surface-2",
   outline: "border border-line bg-surface text-ink hover:bg-surface-2",
   danger: "bg-danger text-white hover:brightness-95",
+  "quiet-danger": "bg-transparent text-danger hover:bg-danger-soft",
 };
 
 const BUTTON_SIZES: Record<ButtonSize, string> = {
@@ -140,6 +142,7 @@ function FieldShell({
   error,
   htmlFor,
   optional,
+  hideLabel,
   children,
 }: {
   label: string;
@@ -147,11 +150,12 @@ function FieldShell({
   error?: string | null;
   htmlFor?: string;
   optional?: boolean;
+  hideLabel?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="grid gap-1.5 text-sm">
-      <label htmlFor={htmlFor} className="flex items-center justify-between font-semibold text-ink">
+      <label htmlFor={htmlFor} className={hideLabel ? "sr-only" : "flex items-center justify-between font-semibold text-ink"}>
         <span>{label}</span>
         {optional ? <OptionalTag /> : null}
       </label>
@@ -249,11 +253,13 @@ export function Select({
   placeholder,
   disabled,
   searchable,
+  hideLabel,
 }: {
   label: string;
   hint?: ReactNode;
   error?: string | null;
   optional?: boolean;
+  hideLabel?: boolean;
   value: string;
   onChange: (value: string) => void;
   options: SelectOption[];
@@ -332,7 +338,7 @@ export function Select({
   }
 
   return (
-    <FieldShell label={label} hint={hint} error={error} htmlFor={fieldId} optional={optional}>
+    <FieldShell label={label} hint={hint} error={error} htmlFor={fieldId} optional={optional} hideLabel={hideLabel}>
       <div ref={ref} className="relative" onKeyDown={onKeyDown}>
         <button
           id={fieldId}
@@ -583,7 +589,7 @@ export function Tooltip({
 }: {
   label: string;
   children: ReactNode;
-  side?: "top" | "right" | "bottom";
+  side?: "top" | "right" | "bottom" | "bottom-end";
   disabled?: boolean;
 }) {
   if (disabled) {
@@ -592,6 +598,7 @@ export function Tooltip({
   const position = {
     top: "bottom-full left-1/2 mb-2 -translate-x-1/2",
     bottom: "top-full left-1/2 mt-2 -translate-x-1/2",
+    "bottom-end": "top-full right-0 mt-2",
     right: "left-full top-1/2 ml-3 -translate-y-1/2",
   }[side];
   return (
@@ -600,7 +607,7 @@ export function Tooltip({
       <span
         role="tooltip"
         className={cn(
-          "pointer-events-none absolute z-50 whitespace-nowrap rounded-lg bg-ink px-2.5 py-1.5 text-xs font-semibold text-bg opacity-0 shadow-soft transition delay-100 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100",
+          "pointer-events-none invisible absolute z-50 w-max max-w-64 rounded-lg bg-ink px-2.5 py-1.5 text-xs font-semibold text-bg opacity-0 shadow-soft transition delay-100 group-hover/tooltip:visible group-hover/tooltip:opacity-100 group-focus-within/tooltip:visible group-focus-within/tooltip:opacity-100",
           position,
         )}
       >
@@ -613,16 +620,17 @@ export function Tooltip({
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   const { t } = useI18n();
   return (
-    <div className="grid place-items-center gap-3 rounded-3xl border border-line bg-surface px-6 py-12 text-center">
-      <div className="grid h-11 w-11 place-items-center rounded-full bg-surface-2 text-muted">
-        <RefreshCw className="h-5 w-5" />
+    <div role="alert" className="mx-auto flex w-full flex-col items-center justify-center gap-3 rounded-3xl border border-danger/20 bg-surface px-6 py-10 text-center">
+      <div className="grid h-12 w-12 place-items-center rounded-full bg-danger-soft text-danger">
+        <CircleAlert className="h-5 w-5" />
       </div>
       <div>
         <p className="font-semibold">{t.common.loadFailedTitle}</p>
-        <p className="mt-1 max-w-sm text-sm text-muted">{message}</p>
+        <p className="mt-1 max-w-sm text-balance text-sm text-muted">{message}</p>
       </div>
       {onRetry ? (
         <Button variant="outline" size="sm" onClick={onRetry}>
+          <RefreshCw className="h-4 w-4" />
           {t.common.retry}
         </Button>
       ) : null}
@@ -712,22 +720,27 @@ export function EmptyState({
   description,
   icon,
   action,
+  inset,
 }: {
   title: string;
   description: string;
   icon?: ReactNode;
   action?: ReactNode;
+  inset?: boolean;
 }) {
   return (
-    <div className="grid place-items-center rounded-3xl border border-line bg-surface px-6 py-12 text-center">
-      {icon ? (
-        <div className="mb-4 grid h-12 w-12 place-items-center rounded-full bg-surface-2 text-muted [&_svg]:h-5 [&_svg]:w-5">
-          {icon}
-        </div>
-      ) : null}
+    <div
+      className={cn(
+        "mx-auto flex w-full flex-col items-center justify-center text-center",
+        inset ? "flex-1 px-4 py-8" : "rounded-3xl border border-dashed border-line bg-surface/60 px-6 py-10",
+      )}
+    >
+      <div className="mb-3 grid h-12 w-12 place-items-center rounded-full bg-primary-soft text-primary [&_svg]:h-5 [&_svg]:w-5">
+        {icon ?? <Inbox />}
+      </div>
       <p className="text-base font-semibold">{title}</p>
-      <p className="mt-1 max-w-sm text-sm text-muted">{description}</p>
-      {action ? <div className="mt-5">{action}</div> : null}
+      <p className="mt-1 max-w-sm text-balance text-sm text-muted">{description}</p>
+      {action ? <div className="mt-4">{action}</div> : null}
     </div>
   );
 }
@@ -788,7 +801,7 @@ export function StatCard({
         <span>{label}</span>
         {icon ? <span className="ml-auto text-muted">{icon}</span> : null}
       </div>
-      <p className="display tabular text-3xl font-semibold text-ink">{value}</p>
+      <p className="display tabular truncate text-2xl font-semibold text-ink sm:text-3xl">{value}</p>
       {hint ? <p className="text-xs text-muted">{hint}</p> : null}
     </Card>
   );
@@ -799,8 +812,9 @@ export function Skeleton({ className }: { className?: string }) {
 }
 
 export function LoadingList({ rows = 3 }: { rows?: number }) {
+  const { t } = useI18n();
   return (
-    <div className="grid gap-3" aria-busy aria-label="Carregando">
+    <div className="grid gap-3" aria-busy aria-label={t.common.loading}>
       {Array.from({ length: rows }, (_, index) => (
         <div key={index} className="flex items-center gap-4 rounded-3xl border border-line bg-surface p-4">
           <Skeleton className="h-10 w-10 rounded-full" />
@@ -864,7 +878,7 @@ export function Tabs<T extends string>({
   tabs: Array<{ value: T; label: string; count?: number }>;
 }) {
   return (
-    <div role="tablist" className="flex gap-1 overflow-x-auto border-b border-line">
+    <div role="tablist" className="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-line [scrollbar-width:none]">
       {tabs.map((tab) => {
         const active = tab.value === value;
         return (
@@ -890,7 +904,7 @@ export function Tabs<T extends string>({
   );
 }
 
-export function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" | "lg" }) {
+export function Avatar({ name, src, size = "md" }: { name: string; src?: string | null; size?: "sm" | "md" | "lg" }) {
   const initials = name
     .split(" ")
     .filter(Boolean)
@@ -898,6 +912,9 @@ export function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md"
     .map((part) => part[0]?.toUpperCase())
     .join("");
   const sizes = { sm: "h-7 w-7 text-[10px]", md: "h-9 w-9 text-xs", lg: "h-14 w-14 text-lg" }[size];
+  if (src) {
+    return <Image src={src} alt="" aria-hidden width={112} height={112} unoptimized className={cn("shrink-0 rounded-full object-cover", sizes)} />;
+  }
   return (
     <span
       aria-hidden

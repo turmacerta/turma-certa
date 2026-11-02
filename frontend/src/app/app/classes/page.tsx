@@ -1,44 +1,40 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Volleyball } from "lucide-react";
-import { ClassDetailDrawer, ClassFormDialog, ClassTile } from "@/components/class-drawers";
-import { BoardColumn, DataTable, FilterChips, SearchInput, Toolbar, ViewSwitcher } from "@/components/data-view";
+import { ArrowRight, Merge, Plus, Volleyball } from "lucide-react";
+import { ClassDetailDrawer, ClassFormDialog } from "@/components/class-drawers";
+import { FilterChips, SearchInput, Toolbar, Pagination, usePaged } from "@/components/data-view";
 import { useOrg } from "@/components/org-provider";
-import { Badge, Button, Card, EmptyState, ErrorState, InlineAlert, LoadingList, OccupancyBar, PageHeader, Select } from "@/components/ui";
-import { classNickname, classTitle, OCCUPANCY_TONES, occupancyStatus, periodOf, scheduleSummary, type OccupancyStatus, type Period } from "@/lib/classes";
+import { Drawer, useConfirm, useToast } from "@/components/overlay";
+import { Badge, Button, Card, EmptyState, ErrorState, LoadingList, OccupancyBar, PageHeader } from "@/components/ui";
+import { api } from "@/lib/api";
+import { classNickname, classTitle, OCCUPANCY_TONES, occupancyStatus, scheduleSummary } from "@/lib/classes";
 import { readQueryParam } from "@/lib/client-store";
+import { errorMessage } from "@/lib/errors";
 import { normalize } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { SportBadge } from "@/lib/sports";
-import type { ClassRow, Teacher } from "@/lib/types";
-import { useApi, usePersistentState } from "@/lib/use-api";
-
-const MODES = ["cards", "table", "board"] as const;
-const STATUSES: OccupancyStatus[] = ["empty", "low", "open", "full"];
+import { suggestMerges, type MergeSuggestion } from "@/lib/optimizer";
+import type { ClassRow } from "@/lib/types";
+import { useApi } from "@/lib/use-api";
 
 export default function ClassesPage() {
   const { t, locale } = useI18n();
-  const { orgId, persona, realPersona, profile } = useOrg();
+  const { orgId, realPersona, teacherId, can } = useOrg();
   const base = `/api/v1/organizations/${orgId}`;
-  const classes = useApi<ClassRow[]>(`${base}/classes`);
-  const teachers = useApi<Teacher[]>(persona === "teacher" ? `${base}/teachers` : null);
-  const [mode, setMode] = usePersistentState("tc-view-classes", "cards", MODES);
+  const isTeacher = !can("classes.view_all");
+  const canManage = can("classes.manage");
+  const canCreate = can("classes.manage", "classes.create_own");
+  const preview = isTeacher && realPersona !== "teacher";
+  const classes = useApi<ClassRow[]>(preview ? (teacherId ? `${base}/classes?teacherId=${teacherId}` : null) : `${base}/classes`);
   const [query, setQuery] = useState("");
   const [sport, setSport] = useState("all");
-  const [level, setLevel] = useState("all");
-  const [period, setPeriod] = useState<"all" | Period>("all");
   const [creating, setCreating] = useState(() => Boolean(readQueryParam("new")));
   const [selected, setSelected] = useState<string | null>(null);
-  const isTeacher = persona === "teacher";
+  const [optimizing, setOptimizing] = useState(false);
   const noSchedule = t.common.noSchedule;
-
-  const myTeacherId = teachers.data?.find((teacher) => teacher.profile_id && teacher.profile_id === profile?.id)?.id ?? null;
-
-  const scoped = useMemo(
-    () => (classes.data ?? []).filter((item) => !isTeacher || realPersona !== "teacher" || item.teacher?.id === myTeacherId),
-    [classes.data, isTeacher, realPersona, myTeacherId],
-  );
+  const scoped = useMemo(() => classes.data ?? [], [classes.data]);
+  const suggestions = useMemo(() => (canManage ? suggestMerges(scoped) : []), [canManage, scoped]);
 
   const sports = useMemo(() => {
     const map = new Map<string, { id: string; name: string; count: number }>();
@@ -52,111 +48,65 @@ export default function ClassesPage() {
     return [...map.values()];
   }, [scoped]);
 
-  const levels = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; rank: number }>();
-    for (const item of scoped) {
-      if (item.class_level && (sport === "all" || item.sport?.id === sport)) {
-        map.set(item.class_level.id, { id: item.class_level.id, name: item.class_level.name, rank: item.class_level.rank ?? 0 });
-      }
-    }
-    return [...map.values()].sort((a, b) => a.rank - b.rank);
-  }, [scoped, sport]);
-
   const visible = useMemo(
     () =>
       scoped
         .filter((item) => sport === "all" || item.sport?.id === sport)
-        .filter((item) => level === "all" || item.class_level?.id === level)
-        .filter((item) => period === "all" || periodOf(item.class_schedules) === period)
         .filter(
           (item) =>
             !query ||
             normalize(`${item.name} ${classTitle(item, t)} ${item.teacher?.full_name ?? ""} ${scheduleSummary(item.class_schedules, locale, noSchedule)}`).includes(normalize(query)),
         )
         .sort((a, b) => classTitle(a, t).localeCompare(classTitle(b, t))),
-    [scoped, sport, level, period, query, t, locale, noSchedule],
+    [scoped, sport, query, t, locale, noSchedule],
   );
+  const paged = usePaged(visible, String(visible.length));
 
-  const grouped = useMemo(() => {
-    const groups: Record<OccupancyStatus, ClassRow[]> = { empty: [], low: [], open: [], full: [] };
-    for (const item of visible) {
-      groups[occupancyStatus(item.occupancy.enrolled_count, item.occupancy.max_capacity)].push(item);
-    }
-    return groups;
-  }, [visible]);
-
-  const filtered = Boolean(query) || sport !== "all" || level !== "all" || period !== "all";
+  const filtered = Boolean(query) || sport !== "all";
 
   return (
-    <div className="grid gap-6 animate-fade-up">
+    <div className="grid grid-cols-1 gap-6 animate-fade-up">
       <PageHeader
-        eyebrow={isTeacher ? t.classes.eyebrowTeacher : t.classes.eyebrowManager}
         title={isTeacher ? t.classes.teacherTitle : t.classes.title}
         description={t.classes.description(scoped.length)}
         actions={
-          isTeacher ? null : (
-            <Button onClick={() => setCreating(true)}>
-              <Plus className="h-4 w-4" />
-              {t.classes.newClass}
-            </Button>
-          )
+          canCreate ? (
+            <>
+              {suggestions.length > 0 ? (
+                <Button variant="outline" onClick={() => setOptimizing(true)}>
+                  <Merge className="h-4 w-4" />
+                  {t.classes.optimize}
+                  <Badge tone="primary">{suggestions.length}</Badge>
+                </Button>
+              ) : null}
+              <Button onClick={() => setCreating(true)}>
+                <Plus className="h-4 w-4" />
+                {t.classes.newClass}
+              </Button>
+            </>
+          ) : null
         }
       />
 
-      {isTeacher && realPersona !== "teacher" ? (
-        <InlineAlert tone="info" title={t.classes.teacherPreviewTitle}>
-          {t.classes.teacherPreviewText}
-        </InlineAlert>
-      ) : null}
-
-      <div className="grid gap-3">
-        <Toolbar>
+      <Toolbar>
           <SearchInput value={query} onChange={setQuery} placeholder={t.classes.searchPlaceholder} className="min-w-56 flex-1 sm:max-w-xs" />
-          <div className="w-44">
-            <Select
-              label={t.classes.level}
-              value={level}
-              onChange={setLevel}
-              options={[{ value: "all", label: t.common.allLevels }, ...levels.map((item) => ({ value: item.id, label: item.name }))]}
-            />
-          </div>
-          <div className="w-36">
-            <Select
-              label={t.classes.period}
-              value={period}
-              onChange={(value) => setPeriod(value as "all" | Period)}
-              options={[
-                { value: "all", label: t.classes.anyPeriod },
-                { value: "morning", label: t.classes.periods.morning },
-                { value: "afternoon", label: t.classes.periods.afternoon },
-                { value: "evening", label: t.classes.periods.evening },
-              ]}
-            />
-          </div>
-          <div className="ml-auto self-end">
-            <ViewSwitcher value={mode} onChange={setMode} modes={MODES} />
-          </div>
-        </Toolbar>
         <FilterChips
           value={sport}
-          onChange={(value) => {
-            setSport(value);
-            setLevel("all");
-          }}
+          onChange={setSport}
           options={[{ value: "all", label: t.common.all, count: scoped.length }, ...sports.map((item) => ({ value: item.id, label: item.name, count: item.count }))]}
         />
-      </div>
+      </Toolbar>
 
-      {classes.loading ? <LoadingList rows={4} /> : null}
+      {!classes.data && !classes.error ? <LoadingList rows={4} /> : null}
       {classes.error ? <ErrorState message={classes.error} onRetry={() => void classes.reload()} /> : null}
 
-      {!classes.loading && !classes.error && visible.length === 0 ? (
+      {classes.data && visible.length === 0 ? (
         <EmptyState
           icon={<Volleyball />}
           title={filtered ? t.classes.emptyFiltered : t.classes.emptyTitle}
           description={filtered ? t.classes.emptyFilteredText : t.classes.emptyText}
           action={
-            isTeacher || filtered ? null : (
+            !canCreate || filtered ? null : (
               <Button onClick={() => setCreating(true)}>
                 <Plus className="h-4 w-4" />
                 {t.classes.createFirst}
@@ -166,9 +116,9 @@ export default function ClassesPage() {
         />
       ) : null}
 
-      {visible.length > 0 && mode === "cards" ? (
+      {visible.length > 0 ? (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {visible.map((item) => {
+          {paged.items.map((item) => {
             const nickname = classNickname(item, t);
             const status = occupancyStatus(item.occupancy.enrolled_count, item.occupancy.max_capacity);
             return (
@@ -176,7 +126,7 @@ export default function ClassesPage() {
                 <div className="flex items-start gap-3">
                   <SportBadge name={item.sport?.name} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{classTitle(item, t)}</p>
+                    <p className="line-clamp-2 font-semibold leading-snug">{classTitle(item, t)}</p>
                     <p className="truncate text-sm text-muted">{scheduleSummary(item.class_schedules, locale, noSchedule)}</p>
                   </div>
                   <span className="tabular text-sm font-semibold">
@@ -198,62 +148,97 @@ export default function ClassesPage() {
         </div>
       ) : null}
 
-      {visible.length > 0 && mode === "table" ? (
-        <DataTable
-          columns={[
-            { label: t.classes.columns.sport },
-            { label: t.classes.columns.level },
-            { label: t.classes.columns.schedule },
-            { label: t.classes.columns.teacher },
-            { label: t.classes.columns.occupancy, className: "w-48" },
-          ]}
-        >
-          {visible.map((item) => {
-            const nickname = classNickname(item, t);
-            return (
-              <tr key={item.id} onClick={() => setSelected(item.id)} className="cursor-pointer transition hover:bg-surface-2">
-                <td className="px-4 py-3">
-                  <span className="flex items-center gap-3">
-                    <SportBadge name={item.sport?.name} size="sm" />
-                    <span className="min-w-0">
-                      <span className="block font-semibold">{item.format === "private" ? `${item.sport?.name} · ${t.common.private}` : item.sport?.name}</span>
-                      {nickname ? <span className="block truncate text-xs text-muted">{nickname}</span> : null}
-                    </span>
-                  </span>
-                </td>
-                <td className="px-4 py-3">{item.class_level?.name ?? t.common.empty}</td>
-                <td className="px-4 py-3 text-muted">{scheduleSummary(item.class_schedules, locale, noSchedule)}</td>
-                <td className="px-4 py-3 text-muted">{item.teacher?.full_name ?? t.common.toBeDefined}</td>
-                <td className="px-4 py-3">
-                  <OccupancyBar enrolled={item.occupancy.enrolled_count} capacity={item.occupancy.max_capacity} />
-                </td>
-              </tr>
-            );
-          })}
-        </DataTable>
-      ) : null}
-
-      {visible.length > 0 && mode === "board" ? (
-        <div className="flex gap-4 overflow-x-auto pb-2">
-          {STATUSES.map((key) => (
-            <BoardColumn key={key} title={t.classes.occupancy[key].label} count={grouped[key].length} tone={OCCUPANCY_TONES[key]}>
-              {grouped[key].map((item) => (
-                <ClassTile
-                  key={item.id}
-                  name={classTitle(item, t)}
-                  subtitle={scheduleSummary(item.class_schedules, locale, noSchedule)}
-                  enrolled={item.occupancy.enrolled_count}
-                  capacity={item.occupancy.max_capacity}
-                  onClick={() => setSelected(item.id)}
-                />
-              ))}
-            </BoardColumn>
-          ))}
-        </div>
-      ) : null}
+      <Pagination {...paged} />
 
       <ClassFormDialog open={creating} orgId={orgId} onClose={() => setCreating(false)} onCreated={() => void classes.reload()} />
-      <ClassDetailDrawer orgId={orgId} classId={selected} onClose={() => setSelected(null)} onChanged={() => void classes.reload()} readOnly={isTeacher} />
+      <ClassDetailDrawer orgId={orgId} classId={selected} onClose={() => setSelected(null)} onChanged={() => void classes.reload()} readOnly={!canManage} />
+      <OptimizerDrawer open={optimizing} orgId={orgId} suggestions={suggestions} onClose={() => setOptimizing(false)} onMerged={() => void classes.reload()} />
     </div>
+  );
+}
+
+function OptimizerDrawer({
+  open,
+  orgId,
+  suggestions,
+  onClose,
+  onMerged,
+}: {
+  open: boolean;
+  orgId: string;
+  suggestions: MergeSuggestion[];
+  onClose: () => void;
+  onMerged: () => void;
+}) {
+  const { t, locale } = useI18n();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState<string | null>(null);
+  const copy = t.classes.optimizer;
+  const noSchedule = t.common.noSchedule;
+
+  async function merge(suggestion: MergeSuggestion) {
+    const source = `${classTitle(suggestion.source, t)} (${scheduleSummary(suggestion.source.class_schedules, locale, noSchedule)})`;
+    const target = `${classTitle(suggestion.target, t)} (${scheduleSummary(suggestion.target.class_schedules, locale, noSchedule)})`;
+    const ok = await confirm({ title: copy.confirmTitle, description: copy.confirmText(source, target), confirmLabel: copy.apply });
+    if (!ok) return;
+    setBusy(suggestion.source.id);
+    try {
+      await api(`/api/v1/organizations/${orgId}/classes/${suggestion.source.id}/merge`, {
+        method: "POST",
+        body: JSON.stringify({ targetClassId: suggestion.target.id }),
+      });
+      toast({ message: copy.applied });
+      onMerged();
+    } catch (err) {
+      toast({ message: errorMessage(err, t), tone: "error" });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Drawer open={open} onClose={onClose} title={copy.title} subtitle={copy.description}>
+      {suggestions.length === 0 ? (
+        <EmptyState icon={<Merge />} title={copy.emptyTitle} description={copy.emptyText} />
+      ) : (
+        <ul className="grid gap-3">
+          {suggestions.map((suggestion) => (
+            <li key={suggestion.source.id} className="grid gap-3 rounded-3xl border border-line p-4">
+              <div className="flex items-center gap-3">
+                <SportBadge name={suggestion.source.sport?.name} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold">{classTitle(suggestion.source, t)}</p>
+                  <p className="truncate text-xs text-muted">
+                    {scheduleSummary(suggestion.source.class_schedules, locale, noSchedule)} · {suggestion.source.occupancy.enrolled_count}/{suggestion.source.occupancy.max_capacity}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 rounded-2xl bg-surface-2 p-3">
+                <ArrowRight className="h-4 w-4 shrink-0 text-muted" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-muted">{copy.into}</p>
+                  <p className="truncate text-sm font-semibold">{classTitle(suggestion.target, t)}</p>
+                  <p className="truncate text-xs text-muted">
+                    {scheduleSummary(suggestion.target.class_schedules, locale, noSchedule)} · {suggestion.target.teacher?.full_name ?? t.common.toBeDefined}
+                  </p>
+                </div>
+              </div>
+              <ul className="grid gap-1 text-sm text-muted">
+                <li>{copy.moving(suggestion.moving)}</li>
+                <li>{copy.result(suggestion.enrolledAfter, suggestion.target.occupancy.max_capacity)}</li>
+                <li>{copy.frees(copy.hours(Math.round(suggestion.freedHours * 10) / 10))}</li>
+              </ul>
+              <div className="flex items-center justify-between gap-2">
+                {suggestion.samePeriod ? <Badge tone="success">{copy.samePeriod}</Badge> : <span />}
+                <Button size="sm" loading={busy === suggestion.source.id} disabled={Boolean(busy)} onClick={() => void merge(suggestion)}>
+                  {copy.apply}
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Drawer>
   );
 }

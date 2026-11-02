@@ -17,7 +17,8 @@ export function errorMessage(error: unknown, t: Messages) {
       return t.errors.notFound(t.errors.entities[entity] ?? entity);
     }
     case "VALIDATION_ERROR": {
-      const details = error.details as { schedules?: string } | undefined;
+      const details = error.details as { schedules?: string; guardian?: string; contact?: string } | undefined;
+      if (details?.contact === "CONTACT_REQUIRED") return t.errors.contactRequired;
       return details?.schedules === "NO_SCHEDULE" ? t.errors.noSchedule : t.errors.validation;
     }
     case "SUPABASE_NOT_CONFIGURED":
@@ -26,6 +27,30 @@ export function errorMessage(error: unknown, t: Messages) {
       return t.errors.database;
     case "CLASS_FULL":
       return t.errors.classFull;
+    case "PLAN_LIMIT": {
+      const details = error.details as { resource?: string; limit?: number } | undefined;
+      return t.errors.planLimit(t.errors.planResources[details?.resource ?? ""] ?? "", details?.limit ?? 0);
+    }
+    case "MERGE_MISMATCH":
+      return t.errors.mergeMismatch;
+    case "PERMISSION_ESCALATION":
+      return t.errors.permissionEscalation;
+    case "ROLE_IN_USE":
+      return t.errors.roleInUse;
+    case "PLAN_ARCHIVED":
+      return t.errors.planArchived;
+    case "ROLE_TEMPLATE":
+      return t.errors.roleTemplate;
+    case "OWNS_SCHOOL":
+      return t.errors.ownsSchool;
+    case "NO_CREDITS":
+      return t.errors.noCredits;
+    case "ALREADY_MEMBER":
+      return t.errors.alreadyMember;
+    case "INVITE_FAILED":
+      return t.errors.inviteFailed;
+    case "SESSION_PAST":
+      return t.errors.sessionPast;
     default:
       return t.errors.generic;
   }

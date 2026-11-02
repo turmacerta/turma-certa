@@ -67,3 +67,10 @@ export const OCCUPANCY_TONES: Record<OccupancyStatus, "danger" | "warning" | "pr
   open: "primary",
   full: "success",
 };
+
+export function levelLabel(level: { name: string; sport?: { name: string } | null } | null | undefined) {
+  if (!level) {
+    return "";
+  }
+  return level.sport ? `${level.sport.name} · ${level.name}` : level.name;
+}

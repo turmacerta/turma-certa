@@ -18,6 +18,8 @@ export const Errors = {
   notFound: (entity: string) =>
     new AppError(`${entity} not found.`, 404, "NOT_FOUND", { entity }),
   conflict: (message: string, code = "CONFLICT") => new AppError(message, 409, code),
+  planLimit: (resource: string, limit: number) =>
+    new AppError("Your plan limit was reached.", 409, "PLAN_LIMIT", { resource, limit }),
   validation: (details: unknown) =>
     new AppError("Invalid data.", 400, "VALIDATION_ERROR", details),
   supabaseMissing: () =>

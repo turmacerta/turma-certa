@@ -12,6 +12,8 @@ import { organizationRouter } from "./modules/organizations/organization.routes"
 import { scheduleRouter } from "./modules/schedule/schedule.routes";
 import { studentRouter } from "./modules/students/student.routes";
 import { teacherRouter } from "./modules/teachers/teacher.routes";
+import { teamRouter } from "./modules/team/team.routes";
+import { portalRouter } from "./modules/portal/portal.routes";
 
 export function createApp() {
   const app = express();
@@ -22,10 +24,11 @@ export function createApp() {
       credentials: true,
     }),
   );
-  app.use(express.json());
+  app.use(express.json({ limit: "3mb" }));
 
   app.use("/health", healthRouter);
   app.use("/api/v1/health", healthRouter);
+  app.use("/api/v1/me/students", portalRouter);
   app.use("/api/v1/me", meRouter);
   app.use("/api/v1/admin", adminRouter);
   app.use("/api/v1/organizations", organizationRouter);
@@ -35,6 +38,7 @@ export function createApp() {
   app.use("/api/v1/organizations/:orgId/classes", classRouter);
   app.use("/api/v1/organizations/:orgId/schedule", scheduleRouter);
   app.use("/api/v1/organizations/:orgId/billing", billingRouter);
+  app.use("/api/v1/organizations/:orgId/team", teamRouter);
 
   app.use(errorHandler);
   return app;

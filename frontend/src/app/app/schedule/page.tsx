@@ -9,6 +9,7 @@ import { Dialog, useToast } from "@/components/overlay";
 import { Badge, Button, cn, EmptyState, ErrorState, IconButton, LoadingList, PageHeader, Select, Stepper } from "@/components/ui";
 import { api } from "@/lib/api";
 import { classTitle } from "@/lib/classes";
+import { useNow } from "@/lib/client-store";
 import { errorMessage } from "@/lib/errors";
 import { addDays, dateKey, startOfWeek } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
@@ -17,33 +18,67 @@ import type { ClassRow, SessionRow } from "@/lib/types";
 import { useApi, usePersistentState } from "@/lib/use-api";
 
 const MODES = ["week", "list", "day"] as const;
-const HOURS = Array.from({ length: 17 }, (_, index) => index + 6);
 const HOUR_HEIGHT = 64;
+const GUTTER = 56;
+
+type Placed = { session: SessionRow; column: number; columns: number; start: Date; end: Date };
+
+function layoutDay(sessions: SessionRow[]): Placed[] {
+  const ends: number[] = [];
+  const placed = [...sessions]
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+    .map((session) => {
+      const start = new Date(session.starts_at);
+      const end = new Date(session.ends_at);
+      let column = ends.findIndex((value) => value <= start.getTime());
+      if (column < 0) {
+        column = ends.length;
+        ends.push(end.getTime());
+      } else {
+        ends[column] = end.getTime();
+      }
+      return { session, column, start, end };
+    });
+  return placed.map((item) => ({
+    ...item,
+    columns: 1 + Math.max(...placed.filter((other) => other.start < item.end && other.end > item.start).map((other) => other.column)),
+  }));
+}
+
+function startOfDay(date: Date) {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
 
 export default function SchedulePage() {
   const { t, format } = useI18n();
-  const { orgId, persona } = useOrg();
+  const { orgId, persona, realPersona, saasPlan, teacherId, can } = useOrg();
   const base = `/api/v1/organizations/${orgId}`;
-  const [mode, setMode] = usePersistentState("tc-view-schedule", "week", MODES);
+  const isTeacher = !can("schedule.view_all");
+  const ownAgenda = isTeacher && realPersona === "teacher";
+  const [mode, setMode] = usePersistentState(`tc-view-schedule-${persona}`, isTeacher ? "list" : "week", MODES);
   const [anchor, setAnchor] = useState(() => new Date());
   const [teacher, setTeacher] = useState("all");
+  const [school, setSchool] = useState("all");
   const [selected, setSelected] = useState<SessionRow | null>(null);
   const [generating, setGenerating] = useState(false);
+  const now = useNow();
 
   const range = useMemo(() => {
-    if (mode === "day") {
-      const start = new Date(anchor);
-      start.setHours(0, 0, 0, 0);
-      return { start, days: 1 };
+    if (mode === "week") {
+      return { start: startOfWeek(anchor), days: 7 };
     }
-    return { start: startOfWeek(anchor), days: mode === "list" ? 14 : 7 };
+    return { start: startOfDay(anchor), days: mode === "list" ? 14 : 1 };
   }, [anchor, mode]);
 
-  const from = range.start.toISOString();
-  const to = addDays(range.start, range.days).toISOString();
-  const sessions = useApi<SessionRow[]>(`${base}/schedule?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-  const classes = useApi<ClassRow[]>(`${base}/classes`);
+  const query = `from=${encodeURIComponent(range.start.toISOString())}&to=${encodeURIComponent(addDays(range.start, range.days).toISOString())}`;
+  const previewScope = isTeacher && !ownAgenda ? (teacherId ? `teacherId=${teacherId}` : null) : "";
+  const sessionsPath = ownAgenda ? `/api/v1/me/schedule?${query}` : previewScope === null ? null : `${base}/schedule?${query}${previewScope ? `&${previewScope}` : ""}`;
+  const sessions = useApi<SessionRow[]>(sessionsPath);
+  const classes = useApi<ClassRow[]>(previewScope === null ? null : `${base}/classes${previewScope ? `?${previewScope}` : ""}`);
   const classById = useMemo(() => new Map((classes.data ?? []).map((item) => [item.id, item])), [classes.data]);
+  const loading = sessions.loading || sessionsPath === null;
 
   const titleOf = (session: SessionRow) => {
     const classRow = classById.get(session.class_group?.id ?? "");
@@ -59,7 +94,22 @@ export default function SchedulePage() {
     return [...map.entries()];
   }, [sessions.data]);
 
-  const visible = (sessions.data ?? []).filter((session) => teacher === "all" || session.teacher?.id === teacher);
+  const schools = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const session of sessions.data ?? []) {
+      const organization = session.class_group?.organization;
+      if (organization) map.set(organization.id, organization.name);
+    }
+    return [...map.entries()];
+  }, [sessions.data]);
+
+  const showTeachers = !isTeacher && saasPlan === "school" && teachers.length > 1;
+  const showSchools = ownAgenda && schools.length > 1;
+
+  const visible = (sessions.data ?? [])
+    .filter((session) => !showTeachers || teacher === "all" || session.teacher?.id === teacher)
+    .filter((session) => !showSchools || school === "all" || session.class_group?.organization_id === school);
+
   const byDay = new Map<string, SessionRow[]>();
   for (const session of visible) {
     const key = dateKey(session.starts_at);
@@ -68,17 +118,30 @@ export default function SchedulePage() {
 
   const days = Array.from({ length: range.days }, (_, index) => addDays(range.start, index));
   const todayKey = dateKey(new Date());
+  const showsToday = days.some((day) => dateKey(day) === todayKey);
   const step = mode === "day" ? 1 : mode === "list" ? 14 : 7;
   const title = mode === "day" ? format.longDate(range.start) : format.range(range.start, addDays(range.start, range.days - 1));
+  const canManage = can("classes.manage");
+
+  const placed = mode === "day" ? layoutDay(visible) : [];
+  const firstHour = Math.min(6, ...placed.map((item) => item.start.getHours()));
+  const lastHour = Math.max(22, ...placed.map((item) => item.end.getHours() + (item.end.getMinutes() ? 1 : 0)));
+  const hours = Array.from({ length: lastHour - firstHour }, (_, index) => firstHour + index);
+
+  const detailLine = (session: SessionRow) => {
+    const parts = [isTeacher ? (session.space?.name ?? t.schedule.noCourt) : (session.teacher?.full_name ?? t.common.noTeacher)];
+    if (!isTeacher && session.space) parts.push(session.space.name);
+    if (showSchools && session.class_group?.organization) parts.push(session.class_group.organization.name);
+    return parts.join(" · ");
+  };
 
   return (
-    <div className="grid gap-6 animate-fade-up">
+    <div className="grid grid-cols-1 gap-6 animate-fade-up">
       <PageHeader
-        eyebrow={t.schedule.eyebrow}
-        title={t.schedule.title}
-        description={t.schedule.description}
+        title={isTeacher ? t.nav.mySchedule : t.schedule.title}
+        description={ownAgenda ? t.schedule.teacherDescription : t.schedule.description}
         actions={
-          persona === "manager" ? (
+          canManage ? (
             <Button variant="outline" onClick={() => setGenerating(true)}>
               <CalendarPlus className="h-4 w-4" />
               {t.schedule.generate}
@@ -92,37 +155,44 @@ export default function SchedulePage() {
           <IconButton label={t.common.previous} className="h-8 w-8" onClick={() => setAnchor(addDays(anchor, -step))}>
             <ChevronLeft className="h-4 w-4" />
           </IconButton>
-          <button type="button" onClick={() => setAnchor(new Date())} className="h-8 rounded-full px-3 text-sm font-semibold hover:bg-surface-2">
-            {t.common.today}
-          </button>
+          <p className="tabular min-w-36 px-1 text-center text-sm font-semibold" aria-live="polite">
+            {title}
+          </p>
           <IconButton label={t.common.next} className="h-8 w-8" onClick={() => setAnchor(addDays(anchor, step))}>
             <ChevronRight className="h-4 w-4" />
           </IconButton>
         </div>
-        <p className="text-sm font-semibold">{title}</p>
+        {showsToday ? null : (
+          <Button variant="outline" size="sm" onClick={() => setAnchor(new Date())}>
+            {t.common.today}
+          </Button>
+        )}
         <div className="ml-auto">
           <ViewSwitcher value={mode} onChange={setMode} modes={MODES} />
         </div>
       </Toolbar>
 
-      {teachers.length > 1 ? (
+      {showTeachers ? (
         <FilterChips
           value={teacher}
           onChange={setTeacher}
           options={[{ value: "all", label: t.schedule.allTeachers }, ...teachers.map(([id, name]) => ({ value: id, label: name.split(" ")[0] ?? name }))]}
         />
       ) : null}
+      {showSchools ? (
+        <FilterChips value={school} onChange={setSchool} options={[{ value: "all", label: t.schedule.allSchools }, ...schools.map(([id, name]) => ({ value: id, label: name }))]} />
+      ) : null}
 
-      {sessions.loading ? <LoadingList rows={4} /> : null}
+      {loading ? <LoadingList rows={4} /> : null}
       {sessions.error ? <ErrorState message={sessions.error} onRetry={() => void sessions.reload()} /> : null}
 
-      {!sessions.loading && !sessions.error && visible.length === 0 ? (
+      {!loading && !sessions.error && visible.length === 0 ? (
         <EmptyState
           icon={<CalendarDays />}
           title={t.schedule.emptyTitle}
-          description={t.schedule.emptyText}
+          description={isTeacher ? t.schedule.teacherEmptyText : t.schedule.emptyText}
           action={
-            persona === "manager" ? (
+            canManage ? (
               <Button onClick={() => setGenerating(true)}>
                 <CalendarPlus className="h-4 w-4" />
                 {t.schedule.generate}
@@ -132,7 +202,7 @@ export default function SchedulePage() {
         />
       ) : null}
 
-      {!sessions.loading && visible.length > 0 && mode === "week" ? (
+      {!loading && visible.length > 0 && mode === "week" ? (
         <div className="overflow-x-auto rounded-3xl border border-line bg-surface shadow-soft">
           <div className="grid min-w-[900px] grid-cols-7 divide-x divide-line">
             {days.map((day) => {
@@ -146,7 +216,14 @@ export default function SchedulePage() {
                   </div>
                   <div className="grid content-start gap-2 p-2">
                     {(byDay.get(key) ?? []).map((session) => (
-                      <SessionChip key={session.id} session={session} title={titleOf(session)} sport={sportOf(session)} onClick={() => setSelected(session)} />
+                      <SessionChip
+                        key={session.id}
+                        session={session}
+                        title={titleOf(session)}
+                        sport={sportOf(session)}
+                        detail={isTeacher ? (session.space?.name ?? "") : (session.teacher?.full_name?.split(" ")[0] ?? t.common.noTeacher)}
+                        onClick={() => setSelected(session)}
+                      />
                     ))}
                   </div>
                 </div>
@@ -156,44 +233,53 @@ export default function SchedulePage() {
         </div>
       ) : null}
 
-      {!sessions.loading && visible.length > 0 && mode === "list" ? (
-        <div className="grid gap-6">
+      {!loading && visible.length > 0 && mode === "list" ? (
+        <div className="grid grid-cols-1 gap-6">
           {days
             .filter((day) => byDay.has(dateKey(day)))
             .map((day) => {
               const key = dateKey(day);
               return (
-                <section key={key} className="grid gap-2">
+                <section key={key} className="grid grid-cols-1 gap-2">
                   <h3 className={cn("text-sm font-semibold", key === todayKey ? "text-primary" : "text-muted")}>
                     {key === todayKey ? t.schedule.todayPrefix : ""}
                     {format.longDate(day)}
                   </h3>
-                  <ul className="grid gap-2">
-                    {(byDay.get(key) ?? []).map((session) => (
-                      <li key={session.id}>
-                        <button
-                          type="button"
-                          onClick={() => setSelected(session)}
-                          className={cn(
-                            "flex w-full items-center gap-4 rounded-2xl border border-line bg-surface p-3 text-left transition hover:border-primary/40",
-                            session.cancelled_at && "opacity-50",
-                          )}
-                        >
-                          <span className="tabular w-28 shrink-0 text-sm font-semibold">
-                            {format.time(session.starts_at)}–{format.time(session.ends_at)}
-                          </span>
-                          <span className="h-8 w-1 rounded-full" style={{ backgroundColor: sportMeta(sportOf(session)).color }} />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate font-semibold">{titleOf(session)}</span>
-                            <span className="block truncate text-xs text-muted">
-                              {session.teacher?.full_name ?? t.common.noTeacher}
-                              {session.space ? ` · ${session.space.name}` : ""}
+                  <ul className="grid grid-cols-1 gap-2">
+                    {(byDay.get(key) ?? []).map((session) => {
+                      const start = new Date(session.starts_at);
+                      const end = new Date(session.ends_at);
+                      const live = now ? start <= now && end > now : false;
+                      const pending = Boolean(now && isTeacher && key === todayKey && end <= now);
+                      return (
+                        <li key={session.id}>
+                          <button
+                            type="button"
+                            onClick={() => setSelected(session)}
+                            className={cn(
+                              "flex w-full items-center gap-4 rounded-2xl border border-line bg-surface p-3 text-left transition hover:border-primary/40",
+                              session.cancelled_at && "opacity-50",
+                            )}
+                          >
+                            <span className="tabular w-24 shrink-0 text-sm font-semibold">
+                              {format.time(start)}–{format.time(end)}
                             </span>
-                          </span>
-                          {session.cancelled_at ? <Badge tone="danger">{t.schedule.cancelled}</Badge> : null}
-                        </button>
-                      </li>
-                    ))}
+                            <span className="h-8 w-1 shrink-0 rounded-full" style={{ backgroundColor: sportMeta(sportOf(session)).color }} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-semibold">{titleOf(session)}</span>
+                              <span className="block truncate text-xs text-muted">{detailLine(session)}</span>
+                            </span>
+                            {session.cancelled_at ? (
+                              <Badge tone="danger">{t.schedule.cancelled}</Badge>
+                            ) : live ? (
+                              <Badge tone="success">{t.common.now}</Badge>
+                            ) : pending ? (
+                              <Badge tone="warning">{t.schedule.takeAttendance}</Badge>
+                            ) : null}
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </section>
               );
@@ -201,40 +287,37 @@ export default function SchedulePage() {
         </div>
       ) : null}
 
-      {!sessions.loading && visible.length > 0 && mode === "day" ? (
+      {!loading && visible.length > 0 && mode === "day" ? (
         <div className="rounded-3xl border border-line bg-surface p-4 shadow-soft">
-          <div className="relative grid" style={{ gridTemplateRows: `repeat(${HOURS.length}, ${HOUR_HEIGHT}px)` }}>
-            {HOURS.map((hour) => (
+          <div className="relative grid" style={{ gridTemplateRows: `repeat(${hours.length}, ${HOUR_HEIGHT}px)` }}>
+            {hours.map((hour) => (
               <div key={hour} className="flex gap-3 border-t border-line/70">
                 <span className="tabular -mt-2.5 w-12 shrink-0 bg-surface text-xs text-muted">{String(hour).padStart(2, "0")}:00</span>
               </div>
             ))}
-            {visible.map((session, index) => {
-              const start = new Date(session.starts_at);
-              const end = new Date(session.ends_at);
-              const top = (start.getHours() + start.getMinutes() / 60 - HOURS[0]!) * HOUR_HEIGHT;
+            {placed.map(({ session, column, columns, start, end }) => {
+              const top = (start.getHours() + start.getMinutes() / 60 - firstHour) * HOUR_HEIGHT;
               const height = Math.max(((end.getTime() - start.getTime()) / 3_600_000) * HOUR_HEIGHT - 4, 28);
-              const overlapping = visible.filter((other) => new Date(other.starts_at) < end && new Date(other.ends_at) > start);
-              const column = overlapping.indexOf(session);
-              const width = 100 / overlapping.length;
               return (
                 <button
                   key={session.id}
                   type="button"
                   onClick={() => setSelected(session)}
-                  className="absolute overflow-hidden rounded-xl border-l-[3px] bg-surface-2 px-3 py-1.5 text-left text-xs transition hover:brightness-95"
+                  className={cn(
+                    "absolute overflow-hidden rounded-xl border-l-[3px] bg-surface-2 px-3 py-1.5 text-left text-xs transition hover:brightness-95",
+                    session.cancelled_at && "line-through opacity-50",
+                  )}
                   style={{
                     top: top + 2,
                     height,
-                    left: `calc(64px + (100% - 64px) * ${(column * width) / 100})`,
-                    width: `calc((100% - 72px) * ${width / 100})`,
+                    left: `calc(${GUTTER}px + (100% - ${GUTTER}px) * ${column / columns})`,
+                    width: `calc((100% - ${GUTTER}px) / ${columns} - 4px)`,
                     borderColor: sportMeta(sportOf(session)).color,
-                    zIndex: index,
                   }}
                 >
                   <span className="block truncate font-semibold text-ink">{titleOf(session)}</span>
                   <span className="block truncate text-muted">
-                    {format.time(session.starts_at)} · {session.space?.name ?? session.teacher?.full_name}
+                    {format.time(start)} · {detailLine(session)}
                   </span>
                 </button>
               );
@@ -243,14 +326,24 @@ export default function SchedulePage() {
         </div>
       ) : null}
 
-      <AttendanceDrawer orgId={orgId} session={selected} onClose={() => setSelected(null)} />
-      <GenerateDialog open={generating} orgId={orgId} classes={classes.data ?? []} onClose={() => setGenerating(false)} onDone={() => void sessions.reload()} />
+      <AttendanceDrawer
+        orgId={selected?.class_group?.organization_id ?? orgId}
+        session={selected}
+        onClose={() => setSelected(null)}
+        onChanged={(updated) => {
+          setSelected((current) => (current?.id === updated.id ? updated : current));
+          sessions.setData((sessions.data ?? []).map((item) => (item.id === updated.id ? updated : item)));
+        }}
+      />
+      {canManage ? (
+        <GenerateDialog open={generating} orgId={orgId} classes={classes.data ?? []} onClose={() => setGenerating(false)} onDone={() => void sessions.reload()} />
+      ) : null}
     </div>
   );
 }
 
-function SessionChip({ session, title, sport, onClick }: { session: SessionRow; title: string; sport: string | null; onClick: () => void }) {
-  const { t, format } = useI18n();
+function SessionChip({ session, title, sport, detail, onClick }: { session: SessionRow; title: string; sport: string | null; detail: string; onClick: () => void }) {
+  const { format } = useI18n();
   return (
     <button
       type="button"
@@ -263,7 +356,7 @@ function SessionChip({ session, title, sport, onClick }: { session: SessionRow; 
         <span className="tabular">{format.time(session.starts_at)}</span>
       </span>
       <span className="line-clamp-2 font-medium text-ink">{title}</span>
-      <span className="truncate text-muted">{session.teacher?.full_name?.split(" ")[0] ?? t.common.noTeacher}</span>
+      {detail ? <span className="truncate text-muted">{detail}</span> : null}
     </button>
   );
 }

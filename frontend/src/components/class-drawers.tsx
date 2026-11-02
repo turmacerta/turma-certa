@@ -1,14 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BellRing, CalendarPlus, Plus, Trash2, UserPlus } from "lucide-react";
+import { BellRing, CalendarPlus, Pencil, Plus, Trash2, UserMinus, UserPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import { autoClassName, classNickname, classTitle, scheduleSummary } from "@/lib/classes";
 import { errorMessage } from "@/lib/errors";
 import { weekdayLong } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
-import type { ClassDetail, ClassFormat, Named, Student, Teacher, Unit } from "@/lib/types";
+import { SportBadge } from "@/lib/sports";
+import type { ClassDetail, ClassFormat, Level, Named, Student, Teacher, Unit } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
+import { useOrg } from "./org-provider";
 import { Dialog, Drawer, useConfirm, useToast } from "./overlay";
 import {
   Avatar,
@@ -35,31 +37,49 @@ type ClassFormProps = {
   orgId: string;
   onClose: () => void;
   onCreated: () => void;
+  editing?: ClassDetail | null;
 };
 
 export function ClassFormDialog(props: ClassFormProps) {
   return props.open ? <ClassFormDialogBody {...props} /> : null;
 }
 
-function ClassFormDialogBody({ open, orgId, onClose, onCreated }: ClassFormProps) {
+const hhmm = (value: string) => value.slice(0, 5);
+
+function ClassFormDialogBody({ open, orgId, onClose, onCreated, editing }: ClassFormProps) {
   const { t, locale } = useI18n();
   const toast = useToast();
+  const { saasPlan, can } = useOrg();
   const base = `/api/v1/organizations/${orgId}`;
+  const school = saasPlan === "school" && can("classes.manage");
   const sports = useApi<Named[]>(`${base}/sports`);
-  const teachers = useApi<Teacher[]>(`${base}/teachers`);
-  const levels = useApi<Named[]>(`${base}/levels`);
+  const teachers = useApi<Teacher[]>(school ? `${base}/teachers` : null);
+  const levels = useApi<Level[]>(`${base}/levels`);
   const units = useApi<Unit[]>(`${base}/units`);
-  const [name, setName] = useState("");
-  const [pickedSportId, setSportId] = useState("");
-  const [teacherId, setTeacherId] = useState("");
-  const [levelId, setLevelId] = useState("");
-  const [spaceId, setSpaceId] = useState("");
-  const [format, setFormat] = useState<ClassFormat>("group");
-  const [capacity, setCapacity] = useState(8);
-  const [schedules, setSchedules] = useState<ScheduleDraft[]>([{ weekday: 2, startsAt: "18:00", endsAt: "19:00" }]);
+  const [name, setName] = useState(() => (editing ? (classNickname(editing, t) ?? "") : ""));
+  const [pickedSportId, setSportId] = useState(editing?.sport?.id ?? "");
+  const [teacherId, setTeacherId] = useState(editing?.teacher?.id ?? "");
+  const [levelId, setLevelId] = useState(editing?.class_level?.id ?? "");
+  const [spaceId, setSpaceId] = useState(editing?.space?.id ?? "");
+  const [format, setFormat] = useState<ClassFormat>(editing?.format ?? "group");
+  const [capacity, setCapacity] = useState(editing?.occupancy.max_capacity ?? 8);
+  const [schedules, setSchedules] = useState<ScheduleDraft[]>(() =>
+    editing?.class_schedules.length
+      ? editing.class_schedules.map((item) => ({ weekday: item.weekday, startsAt: hhmm(item.starts_at), endsAt: hhmm(item.ends_at) }))
+      : [{ weekday: 2, startsAt: "18:00", endsAt: "19:00" }],
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sportId = pickedSportId || sports.data?.[0]?.id || "";
+  const sportLevels = (levels.data ?? []).filter((level) => !level.sport_id || level.sport_id === sportId);
+  const linkedTeachers = (teachers.data ?? []).filter((teacher) => teacher.teacher_sports?.some((link) => link.sport?.id === sportId));
+  const sportTeachers = linkedTeachers.length > 0 ? linkedTeachers : (teachers.data ?? []);
+
+  function pickSport(id: string) {
+    setSportId(id);
+    setLevelId("");
+    setTeacherId("");
+  }
 
   const spaces = useMemo(
     () => (units.data ?? []).flatMap((unit) => unit.spaces.map((space) => ({ ...space, unitId: unit.id, unitName: unit.name }))),
@@ -85,21 +105,38 @@ function ClassFormDialogBody({ open, orgId, onClose, onCreated }: ClassFormProps
     setError(null);
     const space = spaces.find((item) => item.id === spaceId);
     try {
-      await api(`${base}/classes`, {
-        method: "POST",
-        body: JSON.stringify({
-          name: name.trim() || autoName,
-          sportId,
-          teacherId: teacherId || undefined,
-          classLevelId: levelId || undefined,
-          spaceId: spaceId || undefined,
-          unitId: space?.unitId,
-          format,
-          maxCapacity: format === "private" ? 1 : capacity,
-          schedules,
-        }),
-      });
-      toast({ message: t.classes.form.created(name.trim() || autoName) });
+      if (editing) {
+        await api(`${base}/classes/${editing.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: name.trim() || autoName,
+            sportId,
+            teacherId: teacherId || null,
+            classLevelId: levelId || null,
+            spaceId: spaceId || null,
+            unitId: space?.unitId,
+            maxCapacity: format === "private" ? 1 : capacity,
+            schedules,
+          }),
+        });
+        toast({ message: t.classes.form.saved });
+      } else {
+        await api(`${base}/classes`, {
+          method: "POST",
+          body: JSON.stringify({
+            name: name.trim() || autoName,
+            sportId,
+            teacherId: teacherId || undefined,
+            classLevelId: levelId || undefined,
+            spaceId: spaceId || undefined,
+            unitId: space?.unitId,
+            format,
+            maxCapacity: format === "private" ? 1 : capacity,
+            schedules,
+          }),
+        });
+        toast({ message: t.classes.form.created(name.trim() || autoName) });
+      }
       onCreated();
       onClose();
     } catch (err) {
@@ -114,15 +151,15 @@ function ClassFormDialogBody({ open, orgId, onClose, onCreated }: ClassFormProps
       open={open}
       onClose={onClose}
       size="lg"
-      title={t.classes.form.title}
-      description={t.classes.form.description}
+      title={editing ? t.classes.form.editTitle : t.classes.form.title}
+      description={editing ? t.classes.form.editDescription : t.classes.form.description}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
             {t.common.cancel}
           </Button>
           <Button type="submit" form="class-form" disabled={!valid} loading={saving}>
-            {t.classes.form.submit}
+            {editing ? t.classes.form.save : t.classes.form.submit}
           </Button>
         </>
       }
@@ -133,6 +170,7 @@ function ClassFormDialogBody({ open, orgId, onClose, onCreated }: ClassFormProps
             {t.classes.form.missingSportText}
           </InlineAlert>
         ) : null}
+        {editing ? null : (
         <Segmented
           label={t.classes.form.format}
           value={format}
@@ -142,28 +180,64 @@ function ClassFormDialogBody({ open, orgId, onClose, onCreated }: ClassFormProps
             { value: "private", label: t.classes.form.privateClass },
           ]}
         />
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Select
-            label={t.classes.form.sport}
-            value={sportId}
-            onChange={setSportId}
-            options={(sports.data ?? []).map((sport) => ({ value: sport.id, label: sport.name }))}
-          />
-          <Select
-            label={t.classes.form.level}
-            optional
-            value={levelId}
-            onChange={setLevelId}
-            options={[{ value: "", label: t.common.allLevels }, ...(levels.data ?? []).map((level) => ({ value: level.id, label: level.name }))]}
-          />
-          <Select
-            label={t.classes.form.teacher}
-            optional
-            searchable
-            value={teacherId}
-            onChange={setTeacherId}
-            options={[{ value: "", label: t.common.toBeDefined }, ...(teachers.data ?? []).map((teacher) => ({ value: teacher.id, label: teacher.full_name }))]}
-          />
+        )}
+        <div className="grid gap-2">
+          <p className="text-sm font-semibold">{t.classes.form.sport}</p>
+          <div role="radiogroup" aria-label={t.classes.form.sport} className="flex flex-wrap gap-2">
+            {(sports.data ?? []).map((sport) => (
+              <button
+                key={sport.id}
+                type="button"
+                role="radio"
+                aria-checked={sport.id === sportId}
+                onClick={() => pickSport(sport.id)}
+                className={cn(
+                  "flex items-center gap-2 rounded-2xl border py-1.5 pl-1.5 pr-3 text-sm font-semibold transition",
+                  sport.id === sportId ? "border-primary bg-primary-soft" : "border-line hover:border-primary/40",
+                )}
+              >
+                <SportBadge name={sport.name} size="sm" />
+                {sport.name}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="grid gap-2">
+          <p className="text-sm font-semibold">{t.classes.form.level}</p>
+          {sportLevels.length === 0 ? (
+            <p className="text-sm text-muted">{t.classes.form.noLevelsForSport}</p>
+          ) : (
+            <div role="radiogroup" aria-label={t.classes.form.level} className="flex flex-wrap gap-2">
+              {[{ id: "", name: t.common.allLevels }, ...sportLevels].map((level) => (
+                <button
+                  key={level.id || "all"}
+                  type="button"
+                  role="radio"
+                  aria-checked={level.id === levelId}
+                  onClick={() => setLevelId(level.id)}
+                  className={cn(
+                    "h-9 rounded-full border px-4 text-sm font-semibold transition",
+                    level.id === levelId ? "border-primary bg-primary-soft" : "border-line text-muted hover:text-ink",
+                  )}
+                >
+                  {level.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="grid items-start gap-4 sm:grid-cols-2">
+          {school ? (
+            <Select
+              label={t.classes.form.teacher}
+              optional
+              searchable
+              hint={t.classes.form.teacherHint}
+              value={teacherId}
+              onChange={setTeacherId}
+              options={[{ value: "", label: t.common.toBeDefined }, ...sportTeachers.map((teacher) => ({ value: teacher.id, label: teacher.full_name }))]}
+            />
+          ) : null}
           <Select
             label={t.classes.form.space}
             optional
@@ -253,6 +327,7 @@ export function ClassDetailDrawer({
   const students = useApi<Student[]>(classId && !readOnly ? `${base}/students` : null);
   const [studentId, setStudentId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [editingOpen, setEditingOpen] = useState(false);
 
   const item = detail.data;
   const enrolled = (item?.enrollments ?? []).filter((enrollment) => enrollment.status === "active");
@@ -282,6 +357,29 @@ export function ClassDetailDrawer({
       setStudentId("");
       await detail.reload();
       onChanged();
+    });
+  }
+
+  async function unenroll(id: string, name: string) {
+    const ok = await confirm({ title: t.classes.detail.unenrollTitle, description: t.classes.detail.unenrollText(name), confirmLabel: t.classes.detail.unenroll, tone: "danger" });
+    if (!ok || !classId) return;
+    await run(`unenroll:${id}`, async () => {
+      await api(`${base}/classes/${classId}/enrollments/${id}`, { method: "DELETE" });
+      toast({ message: t.classes.detail.unenrolled(name) });
+      await detail.reload();
+      onChanged();
+    });
+  }
+
+  async function archive() {
+    if (!classId || !item) return;
+    const ok = await confirm({ title: t.classes.detail.removeTitle, description: t.classes.detail.removeText, confirmLabel: t.classes.detail.remove, tone: "danger" });
+    if (!ok) return;
+    await run("archive", async () => {
+      await api(`${base}/classes/${classId}`, { method: "DELETE" });
+      toast({ message: t.classes.detail.removed });
+      onChanged();
+      onClose();
     });
   }
 
@@ -360,6 +458,18 @@ export function ClassDetailDrawer({
                 <dd className="font-semibold">{scheduleSummary(item.class_schedules, locale, t.common.noSchedule)}</dd>
               </div>
             </dl>
+            {readOnly ? null : (
+              <div className="flex flex-wrap justify-between gap-2 border-t border-line pt-3">
+                <Button size="sm" variant="quiet-danger" onClick={() => void archive()} loading={busy === "archive"}>
+                  <Trash2 className="h-4 w-4" />
+                  {t.classes.detail.remove}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setEditingOpen(true)}>
+                  <Pencil className="h-4 w-4" />
+                  {t.classes.detail.edit}
+                </Button>
+              </div>
+            )}
           </section>
 
           {readOnly ? null : (
@@ -400,6 +510,14 @@ export function ClassDetailDrawer({
                       <Avatar name={enrollment.student?.full_name ?? "?"} size="sm" />
                       <span className="flex-1 truncate text-sm font-medium">{enrollment.student?.full_name}</span>
                       {levelMismatch ? <Badge tone="warning">{t.classes.detail.levelMismatch}</Badge> : null}
+                      {readOnly || !enrollment.student ? null : (
+                        <IconButton
+                          label={t.classes.detail.unenrollOf(enrollment.student.full_name)}
+                          onClick={() => void unenroll(enrollment.student!.id, enrollment.student!.full_name)}
+                        >
+                          <UserMinus className="h-4 w-4" />
+                        </IconButton>
+                      )}
                     </li>
                   );
                 })}
@@ -408,40 +526,17 @@ export function ClassDetailDrawer({
           </section>
         </div>
       ) : null}
+      <ClassFormDialog
+        open={editingOpen && Boolean(item)}
+        orgId={orgId}
+        editing={item}
+        onClose={() => setEditingOpen(false)}
+        onCreated={() => {
+          void detail.reload();
+          onChanged();
+        }}
+      />
     </Drawer>
   );
 }
 
-export function ClassTile({
-  name,
-  subtitle,
-  enrolled,
-  capacity,
-  onClick,
-  className,
-}: {
-  name: string;
-  subtitle: string;
-  enrolled: number;
-  capacity: number;
-  onClick: () => void;
-  className?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "grid gap-2 rounded-2xl border border-line bg-surface p-3 text-left transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring",
-        className,
-      )}
-    >
-      <span className="truncate text-sm font-semibold">{name}</span>
-      <span className="truncate text-xs text-muted">{subtitle}</span>
-      <OccupancyBar enrolled={enrolled} capacity={capacity} compact />
-      <span className="tabular text-xs text-muted">
-        {enrolled}/{capacity}
-      </span>
-    </button>
-  );
-}

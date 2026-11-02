@@ -1,35 +1,35 @@
 "use client";
 
 import { useState } from "react";
-import { Layers, MapPin, Plus, Trophy } from "lucide-react";
+import { MapPin, Plus, Trophy, X } from "lucide-react";
+import { Menu, MenuItem } from "@/components/menu";
+import { LogoMark, LogoSportPicker, type LogoSport } from "@/components/brand";
 import { useOrg } from "@/components/org-provider";
 import { Dialog, useConfirm, useToast } from "@/components/overlay";
-import { Badge, Button, Card, cn, EmptyState, ErrorState, Field, LoadingList, MockBadge, PageHeader, Stepper, Switch, Tabs } from "@/components/ui";
+import { Avatar, Badge, Button, Card, cn, EmptyState, ErrorState, Field, IconButton, LoadingList, PageHeader, Segmented, Stepper, Switch, Tabs } from "@/components/ui";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { useI18n } from "@/lib/i18n";
+import { PRICING } from "@/lib/plans";
 import { SPORTS, SportBadge } from "@/lib/sports";
-import type { Named, SaasPlan, Unit } from "@/lib/types";
+import type { Level, MemberTag, Named, SaasPlan, Teacher, Unit } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 
 type Tab = "school" | "units" | "sports" | "rules";
 
 export default function SettingsPage() {
   const { t } = useI18n();
+  const { can } = useOrg();
+  const tabs: Tab[] = can("settings.manage") ? ["school", "units", "sports", "rules"] : [];
   const [tab, setTab] = useState<Tab>("school");
 
   return (
-    <div className="grid gap-6 animate-fade-up">
-      <PageHeader eyebrow={t.settings.eyebrow} title={t.settings.title} description={t.settings.description} />
+    <div className="grid grid-cols-1 gap-6 animate-fade-up">
+      <PageHeader title={t.settings.title} description={t.settings.description} />
       <Tabs
         value={tab}
         onChange={setTab}
-        tabs={[
-          { value: "school", label: t.settings.tabs.school },
-          { value: "units", label: t.settings.tabs.units },
-          { value: "sports", label: t.settings.tabs.sports },
-          { value: "rules", label: t.settings.tabs.rules },
-        ]}
+        tabs={tabs.map((value) => ({ value, label: t.settings.tabs[value] }))}
       />
       {tab === "school" ? <SchoolTab /> : null}
       {tab === "units" ? <UnitsTab /> : null}
@@ -40,7 +40,7 @@ export default function SettingsPage() {
 }
 
 function SchoolTab() {
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const toast = useToast();
   const confirm = useConfirm();
   const { orgId, orgName, saasPlan, refresh } = useOrg();
@@ -74,7 +74,10 @@ function SchoolTab() {
     const next: SaasPlan = saasPlan === "school" ? "autonomous" : "school";
     const ok = await confirm({
       title: next === "school" ? t.settings.switchToSchoolTitle : t.settings.switchToAutonomousTitle,
-      description: next === "school" ? t.settings.switchToSchoolText : t.settings.switchToAutonomousText,
+      description:
+        next === "school"
+          ? t.settings.switchToSchoolText(format.currency(PRICING.baseCents.school), format.currency(PRICING.tagCents.manager), format.currency(PRICING.tagCents.teacher))
+          : t.settings.switchToAutonomousText(format.currency(PRICING.baseCents.autonomous)),
       confirmLabel: t.settings.switchConfirm,
       tone: next === "autonomous" ? "danger" : "default",
     });
@@ -92,7 +95,7 @@ function SchoolTab() {
   if (organization.error) return <ErrorState message={organization.error} onRetry={() => void organization.reload()} />;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+    <div className="grid gap-6">
       <Card className="grid gap-5">
         <h2 className="display text-lg font-semibold">{t.settings.schoolData}</h2>
         <Field label={t.settings.name} value={name} onChange={(event) => setEdits((current) => ({ ...current, name: event.target.value }))} />
@@ -121,17 +124,8 @@ function SchoolTab() {
           </Button>
         </div>
       </Card>
-      <Card className="grid content-start gap-4">
-        <h2 className="display text-lg font-semibold">{t.settings.saasPlan}</h2>
-        <div className="flex items-baseline justify-between">
-          <p className="text-2xl font-semibold">{saasPlan === "school" ? t.settings.planSchool : t.settings.planAutonomous}</p>
-          <p className="tabular text-muted">{t.settings.pricePerMonth(saasPlan === "school" ? 189 : 79)}</p>
-        </div>
-        <p className="text-sm text-muted">{saasPlan === "school" ? t.settings.planSchoolText : t.settings.planAutonomousText}</p>
-        <Button variant="outline" onClick={changePlan}>
-          {saasPlan === "school" ? t.settings.switchToAutonomous : t.settings.switchToSchool}
-        </Button>
-      </Card>
+      <LogoSection />
+      <PlanSection plan={saasPlan} onChange={changePlan} />
     </div>
   );
 }
@@ -242,15 +236,110 @@ function UnitsTab() {
   );
 }
 
+function LogoSection() {
+  const { t } = useI18n();
+  const toast = useToast();
+  const { orgId, logoSport, refresh } = useOrg();
+
+  async function choose(sport: LogoSport) {
+    if (sport === logoSport) return;
+    try {
+      await api(`/api/v1/organizations/${orgId}`, { method: "PATCH", body: JSON.stringify({ logoSport: sport }) });
+      await refresh();
+      toast({ message: t.settings.logoSaved });
+    } catch (err) {
+      toast({ message: errorMessage(err, t), tone: "error" });
+    }
+  }
+
+  return (
+    <Card className="grid gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="display text-lg font-semibold">{t.settings.logoTitle}</h2>
+          <p className="text-sm text-muted">{t.settings.logoText}</p>
+        </div>
+        <LogoMark sport={logoSport} className="h-14 w-14" />
+      </div>
+      <LogoSportPicker value={logoSport} onChange={(sport) => void choose(sport)} labels={t.landing.logoSports} label={t.settings.logoTitle} />
+    </Card>
+  );
+}
+
+type Estimate = {
+  base_cents: number;
+  lines: Array<{ tag: MemberTag; count: number; unit_cents: number; total_cents: number }>;
+  students: number;
+  total_cents: number;
+};
+
+function PlanSection({ plan, onChange }: { plan: SaasPlan; onChange: () => void }) {
+  const { t, format } = useI18n();
+  const { orgId } = useOrg();
+  const estimate = useApi<Estimate>(`/api/v1/organizations/${orgId}/pricing`);
+  const plans = t.settings.plans;
+
+  return (
+    <Card className="grid gap-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="display text-lg font-semibold">{plans.monthlyTitle}</h2>
+          <p className="text-sm text-muted">{plans.monthlyText}</p>
+        </div>
+        <p className="display tabular text-3xl font-semibold">
+          {estimate.data ? format.currency(estimate.data.total_cents) : t.common.empty}
+          <span className="text-sm font-normal text-muted">{plans.perMonth}</span>
+        </p>
+      </div>
+      {estimate.error ? <ErrorState message={estimate.error} onRetry={() => void estimate.reload()} /> : null}
+      {estimate.data ? (
+        <dl className="grid gap-2 rounded-2xl bg-surface-2 p-4 text-sm">
+          <div className="flex justify-between gap-3">
+            <dt>{plans.base}</dt>
+            <dd className="tabular font-semibold">{format.currency(estimate.data.base_cents)}</dd>
+          </div>
+          {estimate.data.lines.map((line) => (
+            <div key={line.tag} className="flex justify-between gap-3">
+              <dt className={line.count ? "" : "text-muted"}>{plans.line(line.count, t.tags[line.tag], format.currency(line.unit_cents))}</dt>
+              <dd className="tabular font-semibold">{format.currency(line.total_cents)}</dd>
+            </div>
+          ))}
+          <div className="flex justify-between gap-3 text-muted">
+            <dt>{plans.students(estimate.data.students)}</dt>
+            <dd>{t.settings.team.free}</dd>
+          </div>
+        </dl>
+      ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+        <div>
+          <p className="font-semibold">{plans.modeTitle}</p>
+          <p className="text-sm text-muted">{plan === "school" ? plans.modeSchool : plans.modeAutonomous}</p>
+        </div>
+        <Segmented
+          label={plans.modeTitle}
+          value={plan}
+          onChange={(next) => (next !== plan ? onChange() : undefined)}
+          options={[
+            { value: "autonomous", label: t.settings.planAutonomous },
+            { value: "school", label: t.settings.planSchool },
+          ]}
+        />
+      </div>
+    </Card>
+  );
+}
+
 function SportsTab() {
   const { t } = useI18n();
   const toast = useToast();
-  const { orgId } = useOrg();
+  const { orgId, saasPlan } = useOrg();
   const base = `/api/v1/organizations/${orgId}`;
+  const school = saasPlan === "school";
   const sports = useApi<Named[]>(`${base}/sports`);
-  const levels = useApi<Array<Named & { rank: number }>>(`${base}/levels`);
+  const levels = useApi<Level[]>(`${base}/levels`);
+  const teachers = useApi<Teacher[]>(school ? `${base}/teachers` : null);
   const [sportDialog, setSportDialog] = useState(false);
-  const [levelDialog, setLevelDialog] = useState(false);
+  const [levelSport, setLevelSport] = useState<Named | null>(null);
   const [customSport, setCustomSport] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
   const [levelName, setLevelName] = useState("");
@@ -258,6 +347,8 @@ function SportsTab() {
 
   const existing = new Set((sports.data ?? []).map((sport) => sport.name.toLowerCase()));
   const sportName = picked === "other" ? customSport.trim() : picked ? t.sports[picked as keyof typeof t.sports] : "";
+  const levelsOf = (sportId: string) => (levels.data ?? []).filter((level) => level.sport_id === sportId).sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
+  const teachersOf = (sportId: string) => (teachers.data ?? []).filter((teacher) => teacher.teacher_sports?.some((link) => link.sport?.id === sportId));
 
   async function addSport() {
     if (sportName.length < 2) return;
@@ -277,12 +368,15 @@ function SportsTab() {
   }
 
   async function addLevel() {
-    if (levelName.trim().length < 2) return;
+    if (!levelSport || levelName.trim().length < 2) return;
     setSaving(true);
     try {
-      await api(`${base}/levels`, { method: "POST", body: JSON.stringify({ name: levelName.trim(), rank: levels.data?.length ?? 0 }) });
+      await api(`${base}/levels`, {
+        method: "POST",
+        body: JSON.stringify({ name: levelName.trim(), rank: levelsOf(levelSport.id).length, sportId: levelSport.id }),
+      });
       toast({ message: t.settings.levelAdded });
-      setLevelDialog(false);
+      setLevelSport(null);
       setLevelName("");
       await levels.reload();
     } catch (err) {
@@ -292,48 +386,118 @@ function SportsTab() {
     }
   }
 
-  return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <Card className="grid content-start gap-4">
-        <div className="flex items-center justify-between">
-          <h2 className="display text-lg font-semibold">{t.settings.sports}</h2>
-          <Button size="sm" variant="secondary" onClick={() => setSportDialog(true)}>
-            <Plus className="h-3.5 w-3.5" />
-            {t.settings.addSport}
-          </Button>
-        </div>
-        {sports.loading ? <LoadingList rows={2} /> : null}
-        {sports.data && sports.data.length === 0 ? <EmptyState icon={<Trophy />} title={t.settings.noSportsTitle} description={t.settings.noSportsText} /> : null}
-        <ul className="grid gap-2">
-          {(sports.data ?? []).map((sport) => (
-            <li key={sport.id} className="flex items-center gap-3 rounded-2xl border border-line p-3">
-              <SportBadge name={sport.name} size="sm" />
-              <span className="font-medium">{sport.name}</span>
-            </li>
-          ))}
-        </ul>
-      </Card>
+  async function toggleTeacher(teacher: Teacher, sportId: string, linked: boolean) {
+    const current = (teacher.teacher_sports ?? []).flatMap((link) => (link.sport ? [link.sport.id] : []));
+    const sportIds = linked ? current.filter((id) => id !== sportId) : [...current, sportId];
+    try {
+      await api(`${base}/teachers/${teacher.id}/sports`, { method: "PUT", body: JSON.stringify({ sportIds }) });
+      toast({ message: linked ? t.settings.teacherUnlinked : t.settings.teacherLinked });
+      await teachers.reload();
+    } catch (err) {
+      toast({ message: errorMessage(err, t), tone: "error" });
+    }
+  }
 
-      <Card className="grid content-start gap-4">
-        <div className="flex items-center justify-between">
-          <h2 className="display text-lg font-semibold">{t.settings.levels}</h2>
-          <Button size="sm" variant="secondary" onClick={() => setLevelDialog(true)}>
-            <Plus className="h-3.5 w-3.5" />
-            {t.settings.addLevel}
-          </Button>
-        </div>
-        {levels.data && levels.data.length === 0 ? <EmptyState icon={<Layers />} title={t.settings.noLevelsTitle} description={t.settings.noLevelsText} /> : null}
-        <ol className="grid gap-2">
-          {[...(levels.data ?? [])]
-            .sort((a, b) => a.rank - b.rank)
-            .map((level, index) => (
-              <li key={level.id} className="flex items-center gap-3 rounded-2xl border border-line p-3">
-                <span className="tabular grid h-7 w-7 place-items-center rounded-full bg-primary-soft text-xs font-bold text-primary">{index + 1}</span>
-                <span className="font-medium">{level.name}</span>
-              </li>
-            ))}
-        </ol>
-      </Card>
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-xl text-sm text-muted">{t.settings.sportsText}</p>
+        <Button onClick={() => setSportDialog(true)}>
+          <Plus className="h-4 w-4" />
+          {t.settings.addSport}
+        </Button>
+      </div>
+      {sports.loading ? <LoadingList rows={2} /> : null}
+      {sports.error ? <ErrorState message={sports.error} onRetry={() => void sports.reload()} /> : null}
+      {sports.data && sports.data.length === 0 ? <EmptyState icon={<Trophy />} title={t.settings.noSportsTitle} description={t.settings.noSportsText} /> : null}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {(sports.data ?? []).map((sport) => {
+          const sportTeachers = teachersOf(sport.id);
+          const others = (teachers.data ?? []).filter((teacher) => !sportTeachers.includes(teacher));
+          return (
+            <Card key={sport.id} className="grid content-start gap-5">
+              <div className="flex items-center gap-3">
+                <SportBadge name={sport.name} />
+                <p className="display text-lg font-semibold">{sport.name}</p>
+              </div>
+              <section className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">{t.settings.sportLevels}</p>
+                  <Button size="sm" variant="ghost" onClick={() => setLevelSport(sport)}>
+                    <Plus className="h-3.5 w-3.5" />
+                    {t.settings.addLevel}
+                  </Button>
+                </div>
+                {levelsOf(sport.id).length === 0 ? (
+                  <p className="text-sm text-muted">{t.settings.noLevelsInSport}</p>
+                ) : (
+                  <ol className="flex flex-wrap gap-2">
+                    {levelsOf(sport.id).map((level, index) => (
+                      <li key={level.id} className="flex items-center gap-2 rounded-full border border-line py-1 pl-1 pr-3 text-sm font-medium">
+                        <span className="tabular grid h-6 w-6 place-items-center rounded-full bg-surface-2 text-xs font-bold">{index + 1}</span>
+                        {level.name}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </section>
+              {school ? (
+                <section className="grid gap-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold">{t.settings.sportTeachers}</p>
+                    {others.length > 0 ? (
+                      <Menu
+                        label={t.settings.addTeacherTo(sport.name)}
+                        trigger={({ toggle }) => (
+                          <Button size="sm" variant="ghost" onClick={toggle} aria-label={t.settings.addTeacherTo(sport.name)}>
+                            <Plus className="h-3.5 w-3.5" />
+                            {t.nav.teachers}
+                          </Button>
+                        )}
+                      >
+                        {(close) => (
+                          <>
+                            {others.map((teacher) => (
+                              <MenuItem
+                                key={teacher.id}
+                                onClick={() => {
+                                  close();
+                                  void toggleTeacher(teacher, sport.id, false);
+                                }}
+                              >
+                                {teacher.full_name}
+                              </MenuItem>
+                            ))}
+                          </>
+                        )}
+                      </Menu>
+                    ) : null}
+                  </div>
+                  {sportTeachers.length === 0 ? (
+                    <p className="text-sm text-muted">{t.settings.noTeachersInSport}</p>
+                  ) : (
+                    <ul className="flex flex-wrap gap-2">
+                      {sportTeachers.map((teacher) => (
+                        <li key={teacher.id} className="flex items-center gap-1 rounded-full border border-line py-1 pl-1 pr-1.5 text-sm font-medium">
+                          <Avatar name={teacher.full_name} size="sm" />
+                          <span className="px-1">{teacher.full_name}</span>
+                          <IconButton
+                            label={t.settings.removeTeacherFrom(teacher.full_name, sport.name)}
+                            className="h-6 w-6 text-muted hover:text-danger"
+                            onClick={() => void toggleTeacher(teacher, sport.id, true)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </IconButton>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              ) : null}
+            </Card>
+          );
+        })}
+      </div>
 
       <Dialog
         open={sportDialog}
@@ -379,13 +543,13 @@ function SportsTab() {
       </Dialog>
 
       <Dialog
-        open={levelDialog}
-        onClose={() => setLevelDialog(false)}
+        open={Boolean(levelSport)}
+        onClose={() => setLevelSport(null)}
         size="sm"
-        title={t.settings.newLevelTitle}
+        title={levelSport ? t.settings.newLevelIn(levelSport.name) : t.settings.newLevelTitle}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setLevelDialog(false)}>
+            <Button variant="ghost" onClick={() => setLevelSport(null)}>
               {t.common.cancel}
             </Button>
             <Button disabled={levelName.trim().length < 2} loading={saving} onClick={addLevel}>
@@ -400,37 +564,63 @@ function SportsTab() {
   );
 }
 
+type LessonRules = { noticeHours: number; creditDays: number; maxCredits: number; sameLevel: boolean; anyUnit: boolean; rainCredit: boolean };
+
+const DEFAULT_RULES: LessonRules = { noticeHours: 6, creditDays: 30, maxCredits: 4, sameLevel: true, anyUnit: false, rainCredit: true };
+
 function RulesTab() {
+  const { orgId } = useOrg();
+  const organization = useApi<{ lesson_rules?: Partial<LessonRules> | null }>(`/api/v1/organizations/${orgId}`);
+  if (organization.error) return <ErrorState message={organization.error} onRetry={() => void organization.reload()} />;
+  if (!organization.data) return <LoadingList rows={2} />;
+  return <RulesForm initial={{ ...DEFAULT_RULES, ...(organization.data.lesson_rules ?? {}) }} onSaved={() => void organization.reload()} />;
+}
+
+function RulesForm({ initial, onSaved }: { initial: LessonRules; onSaved: () => void }) {
   const { t } = useI18n();
   const toast = useToast();
-  const [notice, setNotice] = useState(6);
-  const [validity, setValidity] = useState(30);
-  const [maxCredits, setMaxCredits] = useState(4);
-  const [sameLevel, setSameLevel] = useState(true);
-  const [anyUnit, setAnyUnit] = useState(false);
-  const [rainCredit, setRainCredit] = useState(true);
+  const { orgId } = useOrg();
+  const [rules, setRules] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const set = <K extends keyof LessonRules>(key: K) => (value: LessonRules[K]) => setRules((current) => ({ ...current, [key]: value }));
+  const dirty = JSON.stringify(rules) !== JSON.stringify(initial);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api(`/api/v1/organizations/${orgId}`, { method: "PATCH", body: JSON.stringify({ lessonRules: rules }) });
+      toast({ message: t.settings.rulesSaved });
+      onSaved();
+    } catch (err) {
+      toast({ message: errorMessage(err, t), tone: "error" });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <Card className="grid gap-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="display text-lg font-semibold">{t.settings.rulesTitle}</h2>
-          <p className="text-sm text-muted">{t.settings.rulesText}</p>
-        </div>
-        <MockBadge />
+      <div>
+        <h2 className="display text-lg font-semibold">{t.settings.rulesTitle}</h2>
+        <p className="text-sm text-muted">{t.settings.rulesText}</p>
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
-        <Stepper label={t.settings.notice} value={notice} onChange={setNotice} min={0} max={72} suffix={t.settings.noticeSuffix} hint={t.settings.noticeHint} />
-        <Stepper label={t.settings.validity} value={validity} onChange={setValidity} min={7} max={120} suffix={t.settings.validitySuffix} />
-        <Stepper label={t.settings.maxCredits} value={maxCredits} onChange={setMaxCredits} min={1} max={20} suffix={t.settings.maxCreditsSuffix} />
+        <Stepper label={t.settings.notice} value={rules.noticeHours} onChange={set("noticeHours")} min={0} max={72} suffix={t.settings.noticeSuffix} hint={t.settings.noticeHint} />
+        <Stepper label={t.settings.validity} value={rules.creditDays} onChange={set("creditDays")} min={7} max={120} suffix={t.settings.validitySuffix} />
+        <Stepper label={t.settings.maxCredits} value={rules.maxCredits} onChange={set("maxCredits")} min={1} max={20} suffix={t.settings.maxCreditsSuffix} />
       </div>
       <div className="grid gap-4 border-t border-line pt-5">
-        <Switch checked={sameLevel} onChange={setSameLevel} label={t.settings.sameLevel} description={t.settings.sameLevelHint} />
-        <Switch checked={anyUnit} onChange={setAnyUnit} label={t.settings.anyUnit} />
-        <Switch checked={rainCredit} onChange={setRainCredit} label={t.settings.rainCredit} description={t.settings.rainCreditHint} />
+        <Switch checked={rules.sameLevel} onChange={set("sameLevel")} label={t.settings.sameLevel} description={t.settings.sameLevelHint} />
+        <Switch checked={rules.anyUnit} onChange={set("anyUnit")} label={t.settings.anyUnit} />
+        <Switch checked={rules.rainCredit} onChange={set("rainCredit")} label={t.settings.rainCredit} description={t.settings.rainCreditHint} />
       </div>
-      <div className="flex justify-end">
-        <Button onClick={() => toast({ message: t.settings.rulesMissing, tone: "info" })}>{t.settings.saveRules}</Button>
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" disabled={!dirty} onClick={() => setRules(initial)}>
+          {t.common.discard}
+        </Button>
+        <Button onClick={() => void save()} disabled={!dirty} loading={saving}>
+          {t.settings.saveRules}
+        </Button>
       </div>
     </Card>
   );

@@ -1,15 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarSync, Check, UserX } from "lucide-react";
+import { CalendarSync, CalendarX, Check, UserX } from "lucide-react";
 import { api } from "@/lib/api";
 import { classTitle } from "@/lib/classes";
 import { errorMessage } from "@/lib/errors";
 import { useI18n } from "@/lib/i18n";
-import type { ClassDetail, SessionRow } from "@/lib/types";
+import type { ClassDetail, NotifySummary, SessionRow } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
+import { useOrg } from "./org-provider";
 import { Drawer, useToast } from "./overlay";
-import { Avatar, Badge, Button, cn, EmptyState, ErrorState, LoadingList } from "./ui";
+import { Avatar, Badge, Button, cn, EmptyState, ErrorState, InlineAlert, LoadingList, MockBadge, TextArea } from "./ui";
 
 type Mark = "present" | "absent" | "makeup";
 
@@ -19,15 +20,42 @@ const MARKS: Array<{ value: Mark; icon: typeof Check; tone: string; badge: "succ
   { value: "makeup", icon: CalendarSync, tone: "bg-primary text-on-primary", badge: "primary" },
 ];
 
-export function AttendanceDrawer({ orgId, session, onClose }: { orgId: string; session: SessionRow | null; onClose: () => void }) {
+type CancelResponse = { session: SessionRow; notified: NotifySummary | null };
+
+type DrawerProps = { orgId: string; session: SessionRow | null; onClose: () => void; onChanged: (session: SessionRow) => void };
+
+export function AttendanceDrawer(props: DrawerProps) {
+  return <AttendanceDrawerBody key={props.session?.id ?? "closed"} {...props} />;
+}
+
+function AttendanceDrawerBody({ orgId, session, onClose, onChanged }: DrawerProps) {
   const { t, format } = useI18n();
   const toast = useToast();
+  const [cancelling, setCancelling] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const { can } = useOrg();
+  const canCancel = can("schedule.manage", "schedule.cancel_own");
+  const canMark = can("attendance.take");
   const classId = session?.class_group?.id;
   const detail = useApi<ClassDetail>(session && classId ? `/api/v1/organizations/${orgId}/classes/${classId}` : null);
-  const [marks, setMarks] = useState<Record<string, Mark>>({});
+  const recorded = useApi<Array<{ student_id: string; status: string; student: { id: string; full_name: string; class_level_id: string | null; photo_url?: string | null } | null }>>(
+    session ? `/api/v1/organizations/${orgId}/schedule/sessions/${session.id}/attendance` : null,
+  );
+  const [localMarks, setMarks] = useState<Record<string, Mark>>({});
   const [saving, setSaving] = useState<string | null>(null);
 
-  const students = (detail.data?.enrollments ?? []).filter((item) => item.status === "active" && item.student).map((item) => item.student!);
+  const enrolled = (detail.data?.enrollments ?? []).filter((item) => item.status === "active" && item.student).map((item) => item.student!);
+  const guests = (recorded.data ?? []).filter((row) => row.student && !enrolled.some((student) => student.id === row.student_id)).map((row) => row.student!);
+  const students = [...enrolled, ...guests];
+  const guestIds = new Set(guests.map((student) => student.id));
+  const excusedIds = new Set((recorded.data ?? []).filter((row) => row.status === "cancelled").map((row) => row.student_id));
+  const marks: Record<string, Mark> = {
+    ...Object.fromEntries(
+      (recorded.data ?? []).filter((row) => row.status === "present" || row.status === "absent" || (row.status === "makeup" && !guestIds.has(row.student_id))).map((row) => [row.student_id, row.status as Mark]),
+    ),
+    ...localMarks,
+  };
   const labels: Record<Mark, string> = { present: t.attendance.present, absent: t.attendance.absent, makeup: t.attendance.makeup };
 
   async function mark(studentId: string, status: Mark) {
@@ -59,13 +87,40 @@ export function AttendanceDrawer({ orgId, session, onClose }: { orgId: string; s
   }
 
   async function markAllPresent() {
-    for (const student of students.filter((item) => !marks[item.id])) {
+    for (const student of students.filter((item) => !marks[item.id] && !excusedIds.has(item.id))) {
       await mark(student.id, "present");
     }
     toast({ message: t.attendance.finished });
   }
 
   const done = students.filter((item) => marks[item.id]).length;
+  const cancelled = Boolean(session?.cancelled_at);
+  const upcoming = session ? new Date(session.ends_at) > new Date() : false;
+
+  async function setCancelled(next: boolean) {
+    if (!session) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await api<CancelResponse>(`/api/v1/organizations/${orgId}/schedule/sessions/${session.id}/${next ? "cancel" : "restore"}`, {
+        method: "POST",
+        body: JSON.stringify(next && reason.trim() ? { reason: reason.trim() } : {}),
+      });
+      const count = result.notified?.recipients ?? 0;
+      onChanged(result.session);
+      setCancelling(false);
+      setReason("");
+      toast({
+        message: next ? t.cancelLesson.cancelled(count) : t.cancelLesson.restored(count),
+        action: next ? { label: t.common.undo, onClick: () => void setCancelled(false) } : undefined,
+      });
+    } catch (err) {
+      toast({ message: errorMessage(err, t), tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <Drawer
@@ -81,7 +136,16 @@ export function AttendanceDrawer({ orgId, session, onClose }: { orgId: string; s
         ) : null
       }
       footer={
-        students.length ? (
+        cancelling ? (
+          <>
+            <Button variant="ghost" onClick={() => setCancelling(false)}>
+              {t.cancelLesson.back}
+            </Button>
+            <Button variant="danger" onClick={() => void setCancelled(true)} loading={busy}>
+              {t.cancelLesson.confirm}
+            </Button>
+          </>
+        ) : students.length && !cancelled && canMark ? (
           <>
             <span className="mr-auto self-center text-sm text-muted">{t.attendance.marked(done, students.length)}</span>
             <Button variant="outline" onClick={markAllPresent} disabled={done === students.length}>
@@ -92,18 +156,69 @@ export function AttendanceDrawer({ orgId, session, onClose }: { orgId: string; s
         ) : null
       }
     >
+      {cancelled ? (
+        <div className="mb-4">
+          <InlineAlert
+            tone="danger"
+            title={t.cancelLesson.cancelledTitle}
+            action={
+              upcoming && canCancel ? (
+                <Button variant="outline" size="sm" onClick={() => void setCancelled(false)} loading={busy}>
+                  {t.cancelLesson.restore}
+                </Button>
+              ) : null
+            }
+          >
+            {session?.cancel_reason ? t.cancelLesson.cancelledReason(session.cancel_reason) : t.cancelLesson.cancelledText}
+          </InlineAlert>
+        </div>
+      ) : null}
+      {cancelling ? (
+        <div className="grid gap-4">
+          <TextArea
+            label={t.cancelLesson.reason}
+            optional
+            autoFocus
+            maxLength={200}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder={t.cancelLesson.reasonPlaceholder}
+          />
+          <div className="grid gap-1 rounded-2xl border border-line bg-surface-2 p-4">
+            <p className="text-sm">{t.cancelLesson.notice(students.length)}</p>
+            <p className="flex items-center gap-2 text-sm font-semibold">
+              {t.cancelLesson.channels}
+              <MockBadge />
+            </p>
+          </div>
+        </div>
+      ) : null}
+      {!cancelled && !cancelling && upcoming && canCancel ? (
+        <div className="mb-4 flex justify-end">
+          <Button variant="quiet-danger" size="sm" onClick={() => setCancelling(true)}>
+            <CalendarX className="h-4 w-4" />
+            {t.cancelLesson.action}
+          </Button>
+        </div>
+      ) : null}
+      {cancelled || cancelling ? null : (
+        <>
       {detail.loading ? <LoadingList rows={4} /> : null}
       {detail.error ? <ErrorState message={detail.error} onRetry={() => void detail.reload()} /> : null}
-      {!detail.loading && !detail.error && students.length === 0 ? <EmptyState title={t.attendance.emptyTitle} description={t.attendance.emptyText} /> : null}
+      {!detail.loading && !detail.error && students.length === 0 ? <EmptyState inset title={t.attendance.emptyTitle} description={t.attendance.emptyText} /> : null}
       <ul className="grid gap-2">
         {students.map((student) => {
           const current = marks[student.id];
           const meta = MARKS.find((item) => item.value === current);
           return (
             <li key={student.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-surface-2 p-3">
-              <Avatar name={student.full_name} />
+              <Avatar name={student.full_name} src={student.photo_url} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-semibold">{student.full_name}</span>
+                <span className="flex items-center gap-2">
+                  <span className="truncate font-semibold">{student.full_name}</span>
+                  {guestIds.has(student.id) ? <Badge tone="primary">{t.studentArea.makeupBadge}</Badge> : null}
+                  {excusedIds.has(student.id) && !marks[student.id] ? <Badge tone="warning">{t.attendance.excused}</Badge> : null}
+                </span>
                 {meta ? <Badge tone={meta.badge}>{labels[meta.value]}</Badge> : <span className="text-xs text-muted">{t.attendance.unmarked}</span>}
               </span>
               <div className="flex gap-1.5" role="group" aria-label={t.attendance.attendanceOf(student.full_name)}>
@@ -115,7 +230,7 @@ export function AttendanceDrawer({ orgId, session, onClose }: { orgId: string; s
                       type="button"
                       aria-pressed={active}
                       aria-label={labels[option.value]}
-                      disabled={saving === student.id}
+                      disabled={!canMark || saving === student.id}
                       onClick={() => void mark(student.id, option.value)}
                       className={cn(
                         "grid h-10 w-10 place-items-center rounded-full border transition",
@@ -132,6 +247,8 @@ export function AttendanceDrawer({ orgId, session, onClose }: { orgId: string; s
         })}
       </ul>
       {students.length ? <p className="mt-4 text-xs text-muted">{t.attendance.note}</p> : null}
+        </>
+      )}
     </Drawer>
   );
 }

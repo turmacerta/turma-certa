@@ -1,5 +1,6 @@
 import { getAdminClient, unwrap } from "../../infrastructure/supabase/client";
 import { Errors } from "../../shared/errors";
+import { assertPlanCapacity } from "../../shared/plans";
 import type { z } from "zod";
 import type { levelSchema, spaceSchema, sportSchema, unitSchema } from "./catalog.schema";
 
@@ -15,6 +16,7 @@ export class CatalogService {
   }
 
   async createUnit(orgId: string, input: z.infer<typeof unitSchema>) {
+    await assertPlanCapacity(orgId, "units");
     return unwrap(
       await getAdminClient()
         .from("units")

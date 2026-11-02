@@ -3,10 +3,9 @@ import { env } from "../config/env";
 import { getAdminClient, getAuthClient, unwrap } from "../infrastructure/supabase/client";
 import { Errors } from "../shared/errors";
 import { asyncHandler } from "../shared/http";
+import { orgRoles, permissionsFor, type MemberRole, type Permission } from "../shared/permissions";
 
-type MemberRole = "owner" | "admin" | "teacher" | "student";
-
-const STAFF_ROLES: MemberRole[] = ["owner", "admin", "teacher"];
+const ACTING_ROLES: MemberRole[] = ["owner", "admin", "teacher", "student"];
 
 export const requireAuth = asyncHandler(async (req, _res, next) => {
   const header = req.header("authorization");
@@ -21,53 +20,92 @@ export const requireAuth = asyncHandler(async (req, _res, next) => {
     throw Errors.unauthenticated();
   }
 
+  const isStaff = await resolvePlatformAdmin(data.user.id, data.user.email);
+  const actingRole = req.header("x-act-as") as MemberRole | undefined;
+  const acting = isStaff && actingRole && ACTING_ROLES.includes(actingRole);
+
   req.user = {
     id: data.user.id,
     email: data.user.email,
-    isPlatformAdmin: await resolvePlatformAdmin(data.user.id, data.user.email),
+    isStaff,
+    isPlatformAdmin: isStaff && !acting,
+    ...(acting ? { actingRole, actingTeacherId: req.header("x-act-as-teacher") || undefined } : {}),
   };
 
   const memberships = unwrap(
     await getAdminClient()
       .from("organization_members")
-      .select("organization_id, role")
+      .select("*")
       .eq("profile_id", data.user.id),
   );
 
   req.memberships = (memberships ?? []).map((row) => ({
     organizationId: row.organization_id as string,
     role: row.role as MemberRole,
+    roleId: (row.role_id as string | null | undefined) ?? null,
   }));
 
   next();
 });
 
-export function requireOrgStaff(req: Request, _res: Response, next: NextFunction) {
+export const requireOrgMember = asyncHandler(async (req, _res, next) => {
   const orgId = req.params.orgId;
   if (!orgId) {
     throw Errors.validation({ orgId: "Organization is required." });
   }
 
   const membership = req.memberships?.find((item) => item.organizationId === orgId);
-  if (!membership || !STAFF_ROLES.includes(membership.role)) {
+  const role: MemberRole | null =
+    req.user?.actingRole ?? membership?.role ?? (req.user?.isPlatformAdmin ? "owner" : null);
+
+  if (!role) {
     throw Errors.forbidden();
   }
 
+  req.orgRole = role;
+  req.permissions = new Set(permissionsFor(await orgRoles(orgId), role, req.user?.actingRole ? null : membership?.roleId));
   next();
+});
+
+export function can(req: Request, permission: Permission) {
+  return Boolean(req.permissions?.has(permission));
 }
 
-export function requireOrgMember(req: Request, _res: Response, next: NextFunction) {
-  const orgId = req.params.orgId;
-  if (!orgId) {
-    throw Errors.validation({ orgId: "Organization is required." });
+export function requirePermission(...permissions: Permission[]) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!permissions.some((permission) => can(req, permission))) {
+      throw Errors.forbidden();
+    }
+    next();
+  };
+}
+
+export async function ownTeacherId(req: Request) {
+  if (req.orgRole !== "teacher") {
+    return null;
   }
 
-  const membership = req.memberships?.find((item) => item.organizationId === orgId);
-  if (!membership) {
+  const actingTeacherId = req.user?.actingRole === "teacher" ? req.user.actingTeacherId : undefined;
+  if (req.user?.actingRole && !actingTeacherId) {
+    return null;
+  }
+
+  let lookup = getAdminClient().from("teachers").select("id").eq("organization_id", req.params.orgId);
+  lookup = actingTeacherId ? lookup.eq("id", actingTeacherId) : lookup.eq("profile_id", req.user?.id ?? "");
+  const teacher = unwrap(await lookup.maybeSingle());
+  return (teacher?.id as string | undefined) ?? null;
+}
+
+export async function scopedTeacher(req: Request, viewAll: Permission) {
+  if (can(req, viewAll)) {
+    return typeof req.query.teacherId === "string" && req.query.teacherId ? req.query.teacherId : null;
+  }
+
+  const own = await ownTeacherId(req);
+  if (!own) {
     throw Errors.forbidden();
   }
-
-  next();
+  return own;
 }
 
 function isMissingTable(message: string) {

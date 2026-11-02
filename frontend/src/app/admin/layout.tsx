@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminShell } from "@/components/admin-shell";
-import { BrandMark } from "@/components/brand";
-import { Skeleton } from "@/components/ui";
+import { LoadingMark } from "@/components/brand";
 import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { ROUTES } from "@/lib/navigation";
@@ -28,11 +27,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (!ready) {
     return (
-      <div className="grid min-h-screen place-items-center p-8" aria-busy aria-label={t.admin.opening}>
-        <div className="grid justify-items-center gap-6">
-          <BrandMark />
-          <Skeleton className="h-2 w-40" />
-        </div>
+      <div className="grid min-h-screen place-items-center p-8">
+        <LoadingMark label={t.admin.opening} />
       </div>
     );
   }

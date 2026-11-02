@@ -1,9 +1,9 @@
 "use client";
 
-import { Columns3, LayoutGrid, List, Search, Table2, X, CalendarRange, CalendarDays } from "lucide-react";
-import type { ReactNode } from "react";
+import { Columns3, LayoutGrid, List, Search, Table2, X, CalendarRange, CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { useI18n } from "@/lib/i18n";
-import { cn, Segmented } from "./ui";
+import { cn, IconButton, Segmented } from "./ui";
 
 export type ViewMode = "cards" | "list" | "table" | "board" | "week" | "day";
 
@@ -111,36 +111,6 @@ export function Toolbar({ children }: { children: ReactNode }) {
   return <div className="flex flex-wrap items-center gap-3">{children}</div>;
 }
 
-export function BoardColumn({
-  title,
-  count,
-  tone,
-  children,
-}: {
-  title: string;
-  count: number;
-  tone: "danger" | "warning" | "primary" | "success" | "neutral";
-  children: ReactNode;
-}) {
-  const dot = {
-    danger: "bg-danger",
-    warning: "bg-warning",
-    primary: "bg-primary",
-    success: "bg-success",
-    neutral: "bg-muted",
-  }[tone];
-  return (
-    <section className="flex min-w-[280px] flex-1 flex-col gap-3 rounded-3xl border border-line bg-surface-2/70 p-3">
-      <header className="flex items-center gap-2 px-2 pt-1">
-        <span className={cn("h-2.5 w-2.5 rounded-full", dot)} />
-        <h3 className="text-sm font-bold">{title}</h3>
-        <span className="tabular ml-auto rounded-full bg-surface px-2 text-xs font-semibold text-muted">{count}</span>
-      </header>
-      <div className="grid gap-2">{children}</div>
-    </section>
-  );
-}
-
 export function DataTable({
   columns,
   children,
@@ -163,5 +133,45 @@ export function DataTable({
         <tbody className="divide-y divide-line">{children}</tbody>
       </table>
     </div>
+  );
+}
+
+export const PAGE_SIZE = 10;
+
+export function usePaged<T>(items: T[], resetKey = "") {
+  const [state, setState] = useState({ key: resetKey, page: 1 });
+  const pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const page = Math.min(state.key === resetKey ? state.page : 1, pages);
+  return {
+    items: items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    page,
+    pages,
+    total: items.length,
+    setPage: (next: number) => setState({ key: resetKey, page: next }),
+  };
+}
+
+export function Pagination({ page, pages, total, setPage }: { page: number; pages: number; total: number; setPage: (page: number) => void }) {
+  const { t } = useI18n();
+  if (pages <= 1) {
+    return null;
+  }
+  const from = (page - 1) * PAGE_SIZE + 1;
+  const to = Math.min(page * PAGE_SIZE, total);
+  return (
+    <nav aria-label={t.common.pagination} className="flex items-center justify-between gap-3 text-sm">
+      <span className="tabular text-muted">{t.common.pageRange(from, to, total)}</span>
+      <span className="flex items-center gap-1">
+        <IconButton label={t.common.previous} className="h-9 w-9 border border-line" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+          <ChevronLeft className="h-4 w-4" />
+        </IconButton>
+        <span className="tabular min-w-12 text-center font-semibold">
+          {page}/{pages}
+        </span>
+        <IconButton label={t.common.next} className="h-9 w-9 border border-line" disabled={page >= pages} onClick={() => setPage(page + 1)}>
+          <ChevronRight className="h-4 w-4" />
+        </IconButton>
+      </span>
+    </nav>
   );
 }

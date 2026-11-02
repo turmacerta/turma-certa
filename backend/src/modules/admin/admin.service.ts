@@ -1,3 +1,5 @@
+import { assertFitsPlan } from "../../shared/plans";
+import { monthlyEstimate } from "../../shared/pricing";
 import { getAdminClient, unwrap } from "../../infrastructure/supabase/client";
 import { Errors } from "../../shared/errors";
 import type { z } from "zod";
@@ -52,7 +54,13 @@ function withOwners(orgs: OverviewRow[], owners: OwnerRow[]) {
 
 export class AdminService {
   async summary() {
-    const organizations = withOwners(await this.listOrganizations(), await this.listOwners());
+    const base = withOwners(await this.listOrganizations(), await this.listOwners());
+    const organizations = await Promise.all(
+      base.map(async (org) => {
+        const estimate = await monthlyEstimate(org.id);
+        return { ...org, monthly_cents: estimate.total_cents, tag_counts: Object.fromEntries(estimate.lines.map((line) => [line.tag, line.count])) };
+      }),
+    );
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
     return {
@@ -101,6 +109,10 @@ export class AdminService {
   }
 
   async updatePlan(orgId: string, input: z.infer<typeof updateSaasPlanSchema>) {
+    if (input.saasPlan === "autonomous") {
+      await assertFitsPlan(orgId, "autonomous");
+    }
+
     const organization = unwrap(
       await getAdminClient()
         .from("organizations")

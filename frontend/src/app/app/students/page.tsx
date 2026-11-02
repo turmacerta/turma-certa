@@ -2,17 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { Plus, Users } from "lucide-react";
-import { DataTable, FilterChips, SearchInput, Toolbar, ViewSwitcher } from "@/components/data-view";
+import { DataTable, FilterChips, SearchInput, Toolbar, Pagination, usePaged } from "@/components/data-view";
 import { useOrg } from "@/components/org-provider";
 import { StudentCreateDialog, StudentDetailDrawer } from "@/components/student-forms";
-import { Avatar, Badge, Button, Card, EmptyState, ErrorState, LoadingList, PageHeader } from "@/components/ui";
+import { Avatar, Badge, Button, EmptyState, ErrorState, LoadingList, PageHeader } from "@/components/ui";
+import { levelLabel } from "@/lib/classes";
 import { readQueryParam } from "@/lib/client-store";
 import { normalize } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
-import type { Named, Student } from "@/lib/types";
-import { useApi, usePersistentState } from "@/lib/use-api";
-
-const MODES = ["table", "cards"] as const;
+import type { Level, Student } from "@/lib/types";
+import { useApi } from "@/lib/use-api";
 
 function age(birthDate?: string | null) {
   if (!birthDate) return null;
@@ -25,16 +24,19 @@ function age(birthDate?: string | null) {
 
 export default function StudentsPage() {
   const { t } = useI18n();
-  const { orgId, persona } = useOrg();
+  const { orgId, realPersona, teacherId, can } = useOrg();
   const base = `/api/v1/organizations/${orgId}`;
-  const students = useApi<Student[]>(`${base}/students`);
-  const levels = useApi<Named[]>(`${base}/levels`);
-  const [mode, setMode] = usePersistentState("tc-view-students", "table", MODES);
+  const isTeacher = !can("students.view_all");
+  const preview = isTeacher && realPersona !== "teacher";
+  const students = useApi<Student[]>(preview ? (teacherId ? `${base}/students?teacherId=${teacherId}` : null) : `${base}/students`);
+  const levelRows = useApi<Level[]>(`${base}/levels`);
+  const levels = useMemo(() => (levelRows.data ?? []).map((level) => ({ ...level, name: levelLabel(level) })), [levelRows.data]);
+  const total = students.data?.length ?? 0;
   const [query, setQuery] = useState("");
   const [level, setLevel] = useState("all");
   const [creating, setCreating] = useState(() => Boolean(readQueryParam("new")));
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const canEdit = persona === "manager";
+  const canEdit = can("students.manage");
 
   const visible = useMemo(
     () =>
@@ -43,6 +45,7 @@ export default function StudentsPage() {
         .filter((student) => !query || normalize(`${student.full_name} ${student.email ?? ""} ${student.phone ?? ""}`).includes(normalize(query))),
     [students.data, level, query],
   );
+  const paged = usePaged(visible, String(visible.length));
 
   const counts = useMemo(() => {
     const map = new Map<string, number>();
@@ -56,14 +59,15 @@ export default function StudentsPage() {
   const selected = students.data?.find((student) => student.id === selectedId) ?? null;
   const filtered = Boolean(query) || level !== "all";
   const levelBadge = (student: Student) =>
-    student.class_level ? <Badge tone="primary">{student.class_level.name}</Badge> : <Badge tone="neutral">{t.common.noLevel}</Badge>;
+    student.class_level ? <Badge tone="primary">{levelLabel(student.class_level)}</Badge> : <Badge tone="neutral">{t.common.noLevel}</Badge>;
 
   return (
-    <div className="grid gap-6 animate-fade-up">
+    <div className="grid grid-cols-1 gap-6 animate-fade-up">
       <PageHeader
-        eyebrow={t.students.eyebrow}
         title={t.students.title}
-        description={t.students.description(students.data?.length ?? 0)}
+        description={
+          isTeacher ? t.students.teacherDescription(total) : t.students.description(total)
+        }
         actions={
           canEdit ? (
             <Button onClick={() => setCreating(true)}>
@@ -81,19 +85,16 @@ export default function StudentsPage() {
           onChange={setLevel}
           options={[
             { value: "all", label: t.common.all, count: students.data?.length },
-            ...(levels.data ?? []).map((item) => ({ value: item.id, label: item.name, count: counts.get(item.id) ?? 0 })),
+            ...levels.filter((item) => counts.has(item.id)).map((item) => ({ value: item.id, label: item.name, count: counts.get(item.id) ?? 0 })),
             { value: "none", label: t.students.noLevel, count: counts.get("none") ?? 0 },
           ]}
         />
-        <div className="ml-auto">
-          <ViewSwitcher value={mode} onChange={setMode} modes={MODES} />
-        </div>
       </Toolbar>
 
-      {students.loading ? <LoadingList rows={5} /> : null}
+      {!students.data && !students.error ? <LoadingList rows={5} /> : null}
       {students.error ? <ErrorState message={students.error} onRetry={() => void students.reload()} /> : null}
 
-      {!students.loading && !students.error && visible.length === 0 ? (
+      {students.data && visible.length === 0 ? (
         <EmptyState
           icon={<Users />}
           title={filtered ? t.students.emptyFiltered : t.students.emptyTitle}
@@ -109,7 +110,7 @@ export default function StudentsPage() {
         />
       ) : null}
 
-      {visible.length > 0 && mode === "table" ? (
+      {visible.length > 0 ? (
         <DataTable
           columns={[
             { label: t.students.columns.student },
@@ -119,11 +120,11 @@ export default function StudentsPage() {
             { label: t.students.columns.emergency },
           ]}
         >
-          {visible.map((student) => (
+          {paged.items.map((student) => (
             <tr key={student.id} onClick={() => setSelectedId(student.id)} className="cursor-pointer transition hover:bg-surface-2">
               <td className="px-4 py-3">
                 <span className="flex items-center gap-3">
-                  <Avatar name={student.full_name} size="sm" />
+                  <Avatar name={student.full_name} src={student.photo_url} size="sm" />
                   <span className="min-w-0">
                     <span className="block truncate font-semibold">{student.full_name}</span>
                     <span className="block truncate text-xs text-muted">{student.email ?? t.common.noEmail}</span>
@@ -139,29 +140,10 @@ export default function StudentsPage() {
         </DataTable>
       ) : null}
 
-      {visible.length > 0 && mode === "cards" ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {visible.map((student) => {
-            const years = age(student.birth_date);
-            return (
-              <Card key={student.id} onClick={() => setSelectedId(student.id)} className="flex items-center gap-4">
-                <Avatar name={student.full_name} size="lg" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">{student.full_name}</p>
-                  <p className="truncate text-sm text-muted">{student.phone ?? student.email ?? t.common.noContact}</p>
-                  <div className="mt-2 flex gap-2">
-                    {levelBadge(student)}
-                    {years !== null ? <Badge tone="neutral">{t.common.years(years)}</Badge> : null}
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      ) : null}
+      <Pagination {...paged} />
 
-      <StudentCreateDialog open={creating} orgId={orgId} levels={levels.data ?? []} onClose={() => setCreating(false)} onCreated={() => void students.reload()} />
-      <StudentDetailDrawer orgId={orgId} student={selected} levels={levels.data ?? []} onClose={() => setSelectedId(null)} onChanged={() => void students.reload()} />
+      <StudentCreateDialog open={creating} orgId={orgId} levels={levels} onClose={() => setCreating(false)} onCreated={() => void students.reload()} />
+      <StudentDetailDrawer orgId={orgId} student={selected} levels={levels} onClose={() => setSelectedId(null)} onChanged={() => void students.reload()} />
     </div>
   );
 }

@@ -29,6 +29,7 @@ export const LOCALE_OPTIONS: Array<{ value: Locale; label: string; name: string 
 function bindFormat(locale: Locale) {
   return {
     currency: (cents: number) => formatCurrency(cents, locale),
+    hours: (value: number) => new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value),
     date: (value: Date | string) => formatDate(value, locale),
     longDate: (value: Date | string) => formatLongDate(value, locale),
     time: (value: Date | string) => formatTime(value, locale),

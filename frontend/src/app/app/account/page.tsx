@@ -6,7 +6,10 @@ import { Languages, Laptop, LogOut, Monitor, Moon, ShieldCheck, Sun, Trash2 } fr
 import { NewPasswordForm } from "@/components/new-password-form";
 import { useOrg } from "@/components/org-provider";
 import { Dialog, useConfirm, useToast } from "@/components/overlay";
-import { Avatar, Badge, Button, Card, cn, CodeInput, Field, InlineAlert, MockBadge, PageHeader, PasswordField, Tabs } from "@/components/ui";
+import { PhotoInput } from "@/components/photo-input";
+import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
+import { Badge, Button, Card, cn, CodeInput, Field, InlineAlert, PageHeader, PasswordField, Tabs } from "@/components/ui";
 import { authErrorMessage, TOTP_LENGTH } from "@/lib/auth";
 import { LOCALE_OPTIONS, useI18n } from "@/lib/i18n";
 import { createBrowserSupabase } from "@/lib/supabase/client";
@@ -18,8 +21,8 @@ export default function AccountPage() {
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>("profile");
   return (
-    <div className="grid max-w-3xl gap-6 animate-fade-up">
-      <PageHeader eyebrow={t.account.eyebrow} title={t.account.title} description={t.account.description} />
+    <div className="grid max-w-3xl grid-cols-1 gap-6 animate-fade-up">
+      <PageHeader title={t.account.title} description={t.account.description} />
       <Tabs
         value={tab}
         onChange={setTab}
@@ -62,7 +65,14 @@ function ProfileTab() {
     <div className="grid gap-6">
       <Card className="grid gap-5">
         <div className="flex items-center gap-4">
-          <Avatar name={profile?.full_name ?? "?"} size="lg" />
+          <PhotoInput
+            name={profile?.full_name ?? "?"}
+            src={profile?.avatar_url}
+            onUpload={async (dataUrl) => {
+              await api("/api/v1/me/avatar", { method: "PUT", body: JSON.stringify({ dataUrl }) });
+              await refresh();
+            }}
+          />
           <div>
             <p className="font-semibold">{profile?.full_name}</p>
             <p className="text-sm text-muted">{profile?.email}</p>
@@ -201,8 +211,13 @@ function SecurityTab() {
       tone: "danger",
       typeToConfirm: t.account.deleteWord,
     });
-    if (ok) {
-      toast({ message: t.account.deleteMissing, tone: "info" });
+    if (!ok) return;
+    try {
+      await api("/api/v1/me", { method: "DELETE" });
+      await createBrowserSupabase()?.auth.signOut();
+      window.location.replace("/");
+    } catch (err) {
+      toast({ message: errorMessage(err, t), tone: "error" });
     }
   }
 
@@ -252,12 +267,12 @@ function SecurityTab() {
         danger
         title={
           <>
-            {t.account.deleteAccount} <MockBadge />
+            {t.account.deleteAccount}
           </>
         }
         text={t.account.deleteText}
       >
-        <Button variant="ghost" className="text-danger" onClick={deleteAccount}>
+        <Button variant="quiet-danger" onClick={deleteAccount}>
           <Trash2 className="h-4 w-4" />
           {t.account.delete}
         </Button>

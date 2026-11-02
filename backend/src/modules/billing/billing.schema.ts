@@ -8,6 +8,18 @@ export const billingPlanSchema = z.object({
   priceCents: z.number().int().min(0),
 });
 
+export const billingPlanUpdateSchema = z.object({
+  name: z.string().trim().min(2).max(80).optional(),
+  lessonsPerCycle: z.number().int().min(1).max(40).nullable().optional(),
+  cycleDays: z.number().int().min(7).max(365).optional(),
+  priceCents: z.number().int().min(0).optional(),
+  isActive: z.boolean().optional(),
+});
+
+export const reminderSchema = z.object({
+  studentIds: z.array(z.string().uuid()).optional(),
+});
+
 export const subscriptionSchema = z.object({
   studentId: z.string().uuid(),
   billingPlanId: z.string().uuid(),

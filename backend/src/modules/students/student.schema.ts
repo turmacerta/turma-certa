@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+export const guardianSchema = z.object({
+  fullName: z.string().trim().min(2).max(120),
+  email: z.string().email(),
+  phone: z.string().trim().min(10).max(20),
+});
+
 export const studentSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   email: z.string().email().optional(),
@@ -10,6 +16,7 @@ export const studentSchema = z.object({
   emergencyContactPhone: z.string().trim().max(20).optional(),
   notes: z.string().trim().max(2000).optional(),
   classLevelId: z.string().uuid().optional(),
+  guardian: guardianSchema.optional(),
 });
 
 export const creditSchema = z.object({

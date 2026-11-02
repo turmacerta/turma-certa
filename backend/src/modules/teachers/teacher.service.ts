@@ -1,7 +1,8 @@
 import { getAdminClient, unwrap } from "../../infrastructure/supabase/client";
 import { Errors } from "../../shared/errors";
+import { assertPlanCapacity } from "../../shared/plans";
 import type { z } from "zod";
-import type { teacherSchema } from "./teacher.schema";
+import type { teacherSchema, teacherSportsSchema } from "./teacher.schema";
 
 export class TeacherService {
   async list(orgId: string) {
@@ -15,6 +16,7 @@ export class TeacherService {
   }
 
   async create(orgId: string, input: z.infer<typeof teacherSchema>) {
+    await assertPlanCapacity(orgId, "teachers");
     const teacher = unwrap(
       await getAdminClient()
         .from("teachers")
@@ -58,6 +60,22 @@ export class TeacherService {
     }
 
     return teacher;
+  }
+
+  async setSports(orgId: string, teacherId: string, input: z.infer<typeof teacherSportsSchema>) {
+    await this.get(orgId, teacherId);
+
+    unwrap(await getAdminClient().from("teacher_sports").delete().eq("teacher_id", teacherId));
+
+    if (input.sportIds.length > 0) {
+      unwrap(
+        await getAdminClient().from("teacher_sports").insert(
+          input.sportIds.map((sportId) => ({ teacher_id: teacherId, sport_id: sportId })),
+        ),
+      );
+    }
+
+    return this.get(orgId, teacherId);
   }
 }
 

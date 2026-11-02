@@ -5,6 +5,10 @@ export const generateSessionsSchema = z.object({
   weeks: z.number().int().min(1).max(12).default(4),
 });
 
+export const cancelSessionSchema = z.object({
+  reason: z.string().trim().max(200).optional(),
+});
+
 export const attendanceSchema = z.object({
   studentId: z.string().uuid(),
   status: z.enum(["present", "absent", "makeup", "cancelled"]),

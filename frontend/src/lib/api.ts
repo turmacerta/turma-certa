@@ -1,4 +1,5 @@
 import { apiUrl } from "./env";
+import { actingHeaders } from "./staff";
 import { createBrowserSupabase } from "./supabase/client";
 
 type ApiResult<T> = {
@@ -50,6 +51,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       headers: {
         "Content-Type": "application/json",
         ...(await authHeader()),
+        ...actingHeaders(),
         ...(init?.headers as Record<string, string> | undefined),
       },
     });

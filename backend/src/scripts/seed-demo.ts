@@ -95,7 +95,7 @@ async function wipe(orgId: string) {
   if (classIds.length) {
     unwrap(await db.from("class_groups").delete().in("id", classIds));
   }
-  for (const table of ["lesson_credits", "students", "billing_plans", "teachers", "class_levels", "sports", "units"]) {
+  for (const table of ["notifications", "lesson_credits", "students", "guardians", "billing_plans", "teachers", "class_levels", "sports", "units"]) {
     unwrap(await db.from(table).delete().eq("organization_id", orgId));
   }
 }
@@ -136,11 +136,19 @@ async function main() {
   );
   const sport = (name: string) => sports.find((item) => item.name === name)!;
 
+  const levelNames: Record<string, string[]> = {
+    "Tênis": ["Iniciante", "Intermediário", "Avançado"],
+    "Beach Tennis": ["Iniciante", "Intermediário", "Avançado"],
+    "Futevôlei": ["Iniciante", "Intermediário"],
+    "Funcional": ["Iniciante", "Intermediário"],
+  };
   const levels = await insert(
     "class_levels",
-    ["Iniciante", "Intermediário", "Avançado"].map((name, rank) => ({ organization_id: orgId, name, rank })),
+    sports.flatMap((sportRow) =>
+      (levelNames[sportRow.name as string] ?? []).map((name, rank) => ({ organization_id: orgId, sport_id: sportRow.id, name, rank })),
+    ),
   );
-  const level = (name: string) => levels.find((item) => item.name === name)!;
+  const level = (sportName: string, name: string) => levels.find((item) => item.name === name && item.sport_id === sport(sportName).id)!;
 
   const teacherSpecs = [
     { name: "Marina Costa", sports: ["Tênis"], bio: "Ex-tenista universitária, 12 anos dando aula." },
@@ -176,6 +184,7 @@ async function main() {
     { name: "Beach Tennis Iniciante", sport: "Beach Tennis", level: "Iniciante", teacher: "Bruna Lima", space: "Areia 1", capacity: 8, fill: 8, slots: [[2, "19:00", "20:00"], [4, "19:00", "20:00"]] },
     { name: "Beach Tennis Iniciante · Manhã", sport: "Beach Tennis", level: "Iniciante", teacher: "Lucas Ferreira", space: "Areia 2", capacity: 8, fill: 2, slots: [[1, "08:00", "09:00"], [3, "08:00", "09:00"]] },
     { name: "Beach Tennis Intermediário", sport: "Beach Tennis", level: "Intermediário", teacher: "Lucas Ferreira", space: "Areia 1", capacity: 8, fill: 6, slots: [[1, "18:00", "19:00"], [3, "18:00", "19:00"]] },
+    { name: "Beach Tennis Intermediário · Manhã", sport: "Beach Tennis", level: "Intermediário", teacher: "Bruna Lima", space: "Areia 2", capacity: 8, fill: 2, slots: [[2, "07:00", "08:00"], [4, "07:00", "08:00"]] },
     { name: "Beach Tennis Duplas", sport: "Beach Tennis", level: "Avançado", teacher: "Bruna Lima", space: "Areia 2", capacity: 8, fill: 0, slots: [[6, "08:00", "09:30"]] },
     { name: "Futevôlei Livre", sport: "Futevôlei", level: "Intermediário", teacher: "Lucas Ferreira", space: "Areia 2", capacity: 10, fill: 9, slots: [[2, "20:00", "21:00"], [4, "20:00", "21:00"]] },
     { name: "Futevôlei Iniciante", sport: "Futevôlei", level: "Iniciante", teacher: "Lucas Ferreira", space: "Areia 1", capacity: 10, fill: 3, slots: [[6, "10:00", "11:00"]] },
@@ -195,7 +204,7 @@ async function main() {
         space_id: spaceRow.id,
         sport_id: sport(spec.sport).id,
         teacher_id: teacher(spec.teacher).id,
-        class_level_id: level(spec.level).id,
+        class_level_id: level(spec.sport, spec.level).id,
         name: NICKNAMES[spec.name] ?? ("format" in spec ? `${spec.sport} · Particular` : `${spec.sport} · ${spec.level}`),
         format: "format" in spec ? spec.format : "group",
         max_capacity: spec.capacity,
@@ -244,6 +253,23 @@ async function main() {
     };
   });
   const students = await insert("students", studentSpecs);
+
+  const adultAt = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
+  const minors = students.filter((student) => new Date(student.birth_date as string) > adultAt);
+  const guardianNames = [...new Set(minors.map((student) => student.emergency_contact_name as string))];
+  const guardians = await insert(
+    "guardians",
+    guardianNames.map((name) => ({
+      organization_id: orgId,
+      full_name: name,
+      email: slugEmail(name),
+      phone: minors.find((student) => student.emergency_contact_name === name)?.emergency_contact_phone ?? phone(),
+    })),
+  );
+  for (const student of minors) {
+    const guardian = guardians.find((item) => item.full_name === student.emergency_contact_name);
+    if (guardian) unwrap(await db.from("students").update({ guardian_id: guardian.id }).eq("id", student.id));
+  }
 
   const enrollments: Record<string, unknown>[] = [];
   const studentClasses = new Map<string, Row[]>();
@@ -434,6 +460,7 @@ async function main() {
   console.log(
     [
       `Done: ${organization.name}`,
+      `${guardians.length} guardians for ${minors.length} minors`,
       `${spaces.length} spaces in 2 units`,
       `${sports.length} sports, ${levels.length} levels`,
       `${teachers.length} teachers, ${classes.length} classes`,

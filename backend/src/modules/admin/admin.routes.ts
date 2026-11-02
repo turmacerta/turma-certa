@@ -27,3 +27,4 @@ adminRouter.patch(
     return ok(res, await adminService.updatePlan(req.params.orgId, input));
   }),
 );
+

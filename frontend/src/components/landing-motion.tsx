@@ -3,30 +3,59 @@
 import { useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "@/lib/client-store";
 import { useI18n } from "@/lib/i18n";
-import { LOGO_INNER_ARC, LOGO_LIME, LOGO_OUTER_ARC, LOGO_PURPLE, LOGO_SEAMS, LOGO_T, LOGO_VIEWBOX } from "./brand";
-import { SPORTS, SportIcon } from "@/lib/sports";
+import { BALL_CENTER, BALL_SCALE, iconMotion, LOGO_INNER_ARC, LOGO_LIME, LOGO_OUTER_ARC, LOGO_PURPLE, LOGO_SPORTS, LOGO_T, LOGO_VIEWBOX, LogoBall, type LogoSport } from "./brand";
+import { SportIcon } from "@/lib/sports";
 
 function prefersReducedMotion() {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-function easeOutCubic(value: number) {
-  return 1 - Math.pow(1 - value, 3);
+const POP_AT = 1450;
+const MOVE_EVERY = 2800;
+const MOVE_FOR = 900;
+
+function easeInOut(value: number) {
+  return value < 0.5 ? 4 * value * value * value : 1 - Math.pow(-2 * value + 2, 3) / 2;
 }
 
-function progress(elapsed: number, start: number, duration: number) {
-  return easeOutCubic(Math.min(Math.max(elapsed - start, 0) / duration, 1));
+function easeOutBack(value: number) {
+  const c = 1.7;
+  return 1 + (c + 1) * Math.pow(value - 1, 3) + c * Math.pow(value - 1, 2);
 }
 
-const BALL_REST_Y = 435;
+function clamp(value: number) {
+  return Math.min(Math.max(value, 0), 1);
+}
 
-export function AnimatedLogo({ size = 320 }: { size?: number }) {
+function between(elapsed: number, start: number, duration: number) {
+  return clamp((elapsed - start) / duration);
+}
+
+export function AnimatedLogo({ size = 320, label }: { size?: number; label: string }) {
+  const [sport, setSport] = useState<LogoSport>("tennis");
+  const recent = useRef<LogoSport[]>(["tennis"]);
+  const cycle = () => {
+    const options = LOGO_SPORTS.filter((item) => !recent.current.includes(item));
+    const next = options[Math.floor(Math.random() * options.length)] ?? "tennis";
+    recent.current = [next, ...recent.current].slice(0, 4);
+    setSport(next);
+  };
   const outerRef = useRef<SVGPathElement>(null);
   const innerRef = useRef<SVGPathElement>(null);
   const barRef = useRef<SVGRectElement>(null);
   const linkRef = useRef<SVGRectElement>(null);
   const letterRef = useRef<SVGPathElement>(null);
   const ballRef = useRef<SVGGElement>(null);
+  const startRef = useRef(0);
+  const popRef = useRef(POP_AT);
+  const sportRef = useRef(sport);
+
+  useEffect(() => {
+    if (sportRef.current !== sport && startRef.current) {
+      popRef.current = performance.now() - startRef.current;
+    }
+    sportRef.current = sport;
+  }, [sport]);
 
   useEffect(() => {
     const outer = outerRef.current;
@@ -42,35 +71,46 @@ export function AnimatedLogo({ size = 320 }: { size?: number }) {
     const innerLength = inner.getTotalLength();
     outer.style.strokeDasharray = `${outerLength}`;
     inner.style.strokeDasharray = `${innerLength}`;
+    letter.style.transformBox = "fill-box";
+    letter.style.transformOrigin = "center";
+    const { x, y } = BALL_CENTER;
+    const S = BALL_SCALE;
 
     const render = (elapsed: number) => {
-      outer.style.strokeDashoffset = `${outerLength * (1 - progress(elapsed, 0, 900))}`;
-      inner.style.strokeDashoffset = `${innerLength * (1 - progress(elapsed, 250, 900))}`;
-      bar.setAttribute("width", `${799 * progress(elapsed, 700, 600)}`);
-      link.setAttribute("height", `${390 * progress(elapsed, 900, 450)}`);
+      outer.style.strokeDashoffset = `${outerLength * (1 - easeInOut(between(elapsed, 0, 820)))}`;
+      inner.style.strokeDashoffset = `${innerLength * (1 - easeInOut(between(elapsed, 120, 820)))}`;
+      link.setAttribute("height", `${340 * easeInOut(between(elapsed, 760, 260))}`);
+      bar.setAttribute("width", `${799 * easeInOut(between(elapsed, 640, 520))}`);
 
-      const letterProgress = progress(elapsed, 1000, 650);
-      letter.style.opacity = `${letterProgress}`;
-      letter.style.transform = `translateY(${(1 - letterProgress) * 80}px)`;
+      const stamp = between(elapsed, 980, 520);
+      letter.style.opacity = `${clamp(stamp * 2.5)}`;
+      letter.style.transform = `translateY(${(1 - stamp) * -70}px) scale(${stamp ? 1.22 - 0.22 * easeOutBack(stamp) : 1.22})`;
 
-      const ballTime = Math.max(elapsed - 1550, 0) / 1000;
-      const fall = Math.max(1 - ballTime / 0.35, 0);
-      const bounce = ballTime > 0.35 ? Math.abs(Math.sin((ballTime - 0.35) * Math.PI * 2.2)) * Math.exp(-(ballTime - 0.35) * 2.6) * 160 : 0;
-      const idle = elapsed > 4600 ? Math.abs(Math.sin((elapsed - 4600) / 480)) * 22 : 0;
-      const lift = fall * fall * 520 + bounce + idle;
-      const spin = Math.min(ballTime, 1.6) * 260 + (elapsed > 4600 ? (elapsed - 4600) / 12 : 0);
-      ball.style.opacity = elapsed > 1550 ? "1" : "0";
-      ball.setAttribute("transform", `translate(0 ${-lift}) rotate(${spin} 908 ${BALL_REST_Y})`);
+      const sincePop = elapsed - popRef.current;
+      const pop = sincePop <= 0 ? 0 : easeOutBack(clamp(sincePop / 480));
+      const cycleTime = sincePop - 700;
+      const phase = cycleTime > 0 && cycleTime % MOVE_EVERY < MOVE_FOR ? (cycleTime % MOVE_EVERY) / MOVE_FOR : 0;
+      const m = iconMotion(sportRef.current, phase);
+      ball.style.opacity = pop > 0 ? "1" : "0";
+      ball.setAttribute(
+        "transform",
+        [
+          `translate(${x + m.dx * S + m.px * S} ${y + m.dy * S + m.py * S})`,
+          `rotate(${m.angle})`,
+          `scale(${pop * m.sx} ${pop * m.sy})`,
+          `translate(${-x - m.px * S} ${-y - m.py * S})`,
+        ].join(" "),
+      );
     };
 
     if (prefersReducedMotion()) {
-      render(10_000);
-      ball.setAttribute("transform", "");
+      render(POP_AT + 600);
       return;
     }
 
     let frame = 0;
     const start = performance.now();
+    startRef.current = start;
     const tick = (now: number) => {
       render(now - start);
       frame = requestAnimationFrame(tick);
@@ -80,28 +120,20 @@ export function AnimatedLogo({ size = 320 }: { size?: number }) {
   }, []);
 
   return (
-    <svg viewBox={LOGO_VIEWBOX} width={size} height={size} aria-label="Turma Certa" role="img" className="max-w-full overflow-visible">
-      <defs>
-        <clipPath id="tc-animated-ball">
-          <circle cx="908" cy={BALL_REST_Y} r="110" />
-        </clipPath>
-      </defs>
-      <g fill="none" stroke={LOGO_PURPLE} strokeWidth="97">
-        <path ref={outerRef} d={LOGO_OUTER_ARC} />
-        <path ref={innerRef} d={LOGO_INNER_ARC} />
-      </g>
-      <rect ref={barRef} x="940" y="252" width="0" height="95" fill={LOGO_PURPLE} />
-      <rect ref={linkRef} x="861" y="1290" width="97" height="0" fill={LOGO_PURPLE} />
-      <path ref={letterRef} fill={LOGO_LIME} fillRule="evenodd" d={LOGO_T} style={{ opacity: 0 }} />
-      <g ref={ballRef} style={{ opacity: 0 }}>
-        <circle cx="908" cy={BALL_REST_Y} r="110" fill={LOGO_LIME} />
-        <g clipPath="url(#tc-animated-ball)" fill="none" stroke={LOGO_PURPLE} strokeWidth="22">
-          {LOGO_SEAMS.map((seam) => (
-            <path key={seam} d={seam} />
-          ))}
+    <button type="button" onClick={cycle} aria-label={label} title={label} className="group max-w-full cursor-pointer rounded-[3rem] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring">
+      <svg viewBox={LOGO_VIEWBOX} width={size} height={size} aria-hidden className="max-w-full overflow-visible transition-transform group-active:scale-95">
+        <g fill="none" stroke={LOGO_PURPLE} strokeWidth="97">
+          <path ref={outerRef} d={LOGO_OUTER_ARC} />
+          <path ref={innerRef} d={LOGO_INNER_ARC} />
         </g>
-      </g>
-    </svg>
+        <rect ref={barRef} x="940" y="252" width="0" height="95" fill={LOGO_PURPLE} />
+        <rect ref={linkRef} x="861" y="1290" width="97" height="0" fill={LOGO_PURPLE} />
+        <path ref={letterRef} fill={LOGO_LIME} fillRule="evenodd" d={LOGO_T} style={{ opacity: 0 }} />
+        <g ref={ballRef} style={{ opacity: 0 }}>
+          <LogoBall sport={sport} />
+        </g>
+      </svg>
+    </button>
   );
 }
 
@@ -141,48 +173,6 @@ export function Reveal({ children, delay = 0, className = "" }: { children: Reac
     >
       {children}
     </div>
-  );
-}
-
-export function CountUp({ to, suffix = "", duration = 1400 }: { to: number; suffix?: string; duration?: number }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const reduced = useReducedMotion();
-  const [animated, setValue] = useState(0);
-  const value = reduced ? to : animated;
-
-  useEffect(() => {
-    const node = ref.current;
-    if (!node || reduced) {
-      return;
-    }
-    let frame = 0;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (!entry?.isIntersecting) {
-        return;
-      }
-      observer.disconnect();
-      const start = performance.now();
-      const tick = (now: number) => {
-        const progress = easeOutCubic(Math.min((now - start) / duration, 1));
-        setValue(Math.round(to * progress));
-        if (progress < 1) {
-          frame = requestAnimationFrame(tick);
-        }
-      };
-      frame = requestAnimationFrame(tick);
-    });
-    observer.observe(node);
-    return () => {
-      observer.disconnect();
-      cancelAnimationFrame(frame);
-    };
-  }, [to, duration, reduced]);
-
-  return (
-    <span ref={ref} className="tabular">
-      {value}
-      {suffix}
-    </span>
   );
 }
 
@@ -258,63 +248,6 @@ export function LiveClassesDemo() {
         );
       })}
       <p className="text-xs text-muted">{step >= 3 ? t.landing.demoMakeup : t.landing.demoVacancy}</p>
-    </div>
-  );
-}
-
-export function SportsMarquee() {
-  const { t } = useI18n();
-  const trackRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const track = trackRef.current;
-    if (!track || prefersReducedMotion()) {
-      return;
-    }
-    let offset = 0;
-    let frame = 0;
-    let last = performance.now();
-    let paused = false;
-    const onEnter = () => {
-      paused = true;
-    };
-    const onLeave = () => {
-      paused = false;
-    };
-    track.addEventListener("mouseenter", onEnter);
-    track.addEventListener("mouseleave", onLeave);
-    const tick = (now: number) => {
-      const delta = now - last;
-      last = now;
-      if (!paused) {
-        offset = (offset + delta * 0.04) % (track.scrollWidth / 2);
-        track.style.transform = `translateX(${-offset}px)`;
-      }
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => {
-      cancelAnimationFrame(frame);
-      track.removeEventListener("mouseenter", onEnter);
-      track.removeEventListener("mouseleave", onLeave);
-    };
-  }, []);
-
-  const items = SPORTS.filter((sport) => sport.key !== "other");
-
-  return (
-    <div className="overflow-hidden [mask-image:linear-gradient(90deg,transparent,black_10%,black_90%,transparent)]">
-      <div ref={trackRef} className="flex w-max gap-3 will-change-transform">
-        {[...items, ...items].map((sport, index) => (
-          <span
-            key={`${sport.key}-${index}`}
-            className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-line bg-surface px-4 py-2 text-sm font-medium"
-          >
-            <SportIcon name={t.sports[sport.key]} className="h-4 w-4" />
-            {t.sports[sport.key]}
-          </span>
-        ))}
-      </div>
     </div>
   );
 }
