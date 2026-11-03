@@ -130,7 +130,6 @@ meRouter.delete(
   }),
 );
 
-
 meRouter.get(
   "/network",
   requireAuth,

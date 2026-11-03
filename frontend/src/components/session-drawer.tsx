@@ -16,11 +16,11 @@ type CancelResponse = { session: SessionRow; notified: NotifySummary | null };
 
 type DrawerProps = { orgId: string; session: SessionRow | null; onClose: () => void; onChanged: (session: SessionRow) => void };
 
-export function AttendanceDrawer(props: DrawerProps) {
-  return <AttendanceDrawerBody key={props.session?.id ?? "closed"} {...props} />;
+export function SessionDrawer(props: DrawerProps) {
+  return <SessionDrawerBody key={props.session?.id ?? "closed"} {...props} />;
 }
 
-function AttendanceDrawerBody({ orgId, session, onClose, onChanged }: DrawerProps) {
+function SessionDrawerBody({ orgId, session, onClose, onChanged }: DrawerProps) {
   const { t, format } = useI18n();
   const toast = useToast();
   const [cancelling, setCancelling] = useState(false);

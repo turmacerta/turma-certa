@@ -113,45 +113,6 @@ export class NotificationService {
     return summary;
   }
 
-  async notifyMerge(orgId: string, studentIds: string[], targetClassId: string) {
-    const target = unwrap(
-      await getAdminClient()
-        .from("class_groups")
-        .select("name, organization:organizations(name), teacher:teachers(full_name), schedules:class_schedules(weekday, starts_at)")
-        .eq("id", targetClassId)
-        .maybeSingle(),
-    ) as unknown as { name: string; organization: { name: string } | null; teacher: { full_name: string } | null; schedules: Array<{ weekday: number; starts_at: string }> } | null;
-    const students = (unwrap(
-      await getAdminClient()
-        .from("students")
-        .select("id, full_name, email, phone, profile_id, guardian:guardians(id, full_name, email, phone, profile_id)")
-        .eq("organization_id", orgId)
-        .in("id", studentIds),
-    ) ?? []) as unknown as StudentContact[];
-    const days = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
-    const slots = (target?.schedules ?? []).map((item) => `${days[item.weekday]} às ${item.starts_at.slice(0, 5)}`).join(", ");
-    const summary = emptySummary();
-    const rows = await Promise.all(
-      students.map(async (student) => {
-        const guardian = one(student.guardian as unknown as Contact | Contact[]);
-        const contact = guardian ?? student;
-        const firstName = student.full_name.split(" ")[0] ?? student.full_name;
-        const title = `Nova turma · ${target?.name ?? ""}`;
-        const body = `${guardian ? `${firstName} passa` : "Você passa"} a fazer aula em ${target?.name ?? "outra turma"}${slots ? `, ${slots}` : ""}${target?.teacher ? `, com ${target.teacher.full_name}` : ""}.`;
-        const channels = await deliver({ recipientName: contact.full_name, email: contact.email, phone: contact.phone, profileId: contact.profile_id, title, body });
-        for (const [channel, result] of Object.entries(channels) as Array<[Channel, { status: ChannelStatus }]>) {
-          summary.channels[channel][result.status] += 1;
-        }
-        return { organization_id: orgId, student_id: student.id, guardian_id: guardian?.id ?? null, kind: "class_merged", recipient_name: contact.full_name, email: contact.email, phone: contact.phone, title, body, channels };
-      }),
-    );
-    summary.recipients = rows.length;
-    if (rows.length) {
-      unwrap(await getAdminClient().from("notifications").insert(rows));
-    }
-    return summary;
-  }
-
   async notifySession(orgId: string, sessionId: string, kind: SessionNotificationKind): Promise<NotifySummary> {
     const session = unwrap(
       await getAdminClient()

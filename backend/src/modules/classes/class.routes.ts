@@ -101,4 +101,3 @@ classRouter.post(
     ok(res, await classService.notifyVacancies(req.params.orgId, req.params.classId)),
   ),
 );
-

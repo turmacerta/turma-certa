@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight } from "lucide-react";
-import { AttendanceDrawer } from "@/components/attendance-drawer";
+import { SessionDrawer } from "@/components/session-drawer";
 import { FilterChips, Toolbar, ViewSwitcher } from "@/components/data-view";
 import { useOrg } from "@/components/org-provider";
 import { Dialog, useToast } from "@/components/overlay";
@@ -326,7 +326,7 @@ export default function SchedulePage() {
         </div>
       ) : null}
 
-      <AttendanceDrawer
+      <SessionDrawer
         orgId={selected?.class_group?.organization_id ?? orgId}
         session={selected}
         onClose={() => setSelected(null)}

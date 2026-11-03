@@ -7,7 +7,7 @@ import type {
   classGroupSchema,
   classGroupUpdateSchema,
   enrollmentSchema,
-  
+
   vacancyAlertSchema,
 } from "./class.schema";
 

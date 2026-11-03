@@ -8,8 +8,6 @@ type ClassLike = Pick<ClassRow, "name" | "format"> & {
   class_schedules?: ClassSchedule[];
 };
 
-export type Period = "morning" | "afternoon" | "evening";
-
 export function autoClassName(t: Messages, sport?: string | null, level?: string | null, format?: string) {
   const parts = [sport ?? t.common.group];
   if (format === "private") {
@@ -52,13 +50,6 @@ export function classOption(item: ClassRow, t: Messages, locale: Locale) {
     label: classTitle(item, t),
     description: `${scheduleSummary(item.class_schedules, locale, t.common.noSchedule)} · ${item.occupancy.enrolled_count}/${item.occupancy.max_capacity}${full ? ` · ${t.classes.detail.waitlist}` : ""}`,
   };
-}
-
-export function periodOf(schedules: ClassSchedule[] = []): Period {
-  const hour = Number(schedules[0]?.starts_at.slice(0, 2) ?? 0);
-  if (hour < 12) return "morning";
-  if (hour < 18) return "afternoon";
-  return "evening";
 }
 
 export function occupancyStatus(enrolled: number, capacity: number) {

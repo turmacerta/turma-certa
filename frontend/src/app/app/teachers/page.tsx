@@ -17,9 +17,7 @@ import { SportBadge, SportIcon } from "@/lib/sports";
 import type { ClassRow, Named, Teacher } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 
-
 type Load = { hours: number; classes: ClassRow[]; students: number; sports: Set<string> };
-
 
 export default function TeachersPage() {
   const { t, locale, format } = useI18n();

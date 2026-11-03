@@ -8,4 +8,3 @@ export const generateSessionsSchema = z.object({
 export const cancelSessionSchema = z.object({
   reason: z.string().trim().max(200).optional(),
 });
-

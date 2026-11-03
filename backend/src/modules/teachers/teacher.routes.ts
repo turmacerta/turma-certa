@@ -69,7 +69,6 @@ teacherRouter.put(
   }),
 );
 
-
 teacherRouter.post(
   "/:teacherId/access",
   manage,

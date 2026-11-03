@@ -52,4 +52,3 @@ scheduleRouter.get(
   requirePermission("attendance.take", "schedule.view_all"),
   asyncHandler(async (req, res) => ok(res, await scheduleService.attendance(req.params.orgId, req.params.sessionId))),
 );
-

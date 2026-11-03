@@ -482,4 +482,3 @@ function PreviewTeacherPicker() {
     </Menu>
   );
 }
-

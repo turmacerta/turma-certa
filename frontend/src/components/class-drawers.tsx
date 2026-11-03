@@ -599,4 +599,3 @@ export function ClassDetailDrawer({
     </Drawer>
   );
 }
-

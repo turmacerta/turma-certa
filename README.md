@@ -56,8 +56,8 @@ Monthly fee = base + price per member with a paid tag during the month. Students
 | `catalog` | Units, spaces, sports, levels |
 | `students` | Profiles, guardians, credits, photos, app access |
 | `teachers` | Teachers, sports, photos |
-| `classes` | Classes, edit and archive, enrollment, vacancies, merge |
-| `schedule` | Sessions, attendance, cancel and restore |
+| `classes` | Classes, edit and archive, package-checked enrollment, vacancies |
+| `schedule` | Sessions, lesson roster, cancel and restore |
 | `billing` | Plans, subscriptions, invoices, reminders |
 | `team` | Roles, members, invites |
 | `portal` | Student and guardian area |
