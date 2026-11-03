@@ -4,8 +4,7 @@ import Link from "next/link";
 import { ArrowLeft, CalendarCheck2, CircleDollarSign, Users } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { BrandMark, LogoMark } from "./brand";
-import { LanguageSwitch } from "./language-switch";
-import { ThemeToggle } from "./theme-toggle";
+import { Preferences } from "./preferences";
 
 const HIGHLIGHT_ICONS = [Users, CalendarCheck2, CircleDollarSign];
 
@@ -71,10 +70,7 @@ export function AuthLayout({
               <BrandMark />
             </Link>
           )}
-          <div className="ml-auto flex items-center gap-2">
-            <LanguageSwitch />
-            <ThemeToggle />
-          </div>
+          <Preferences className="ml-auto" />
         </div>
         <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center py-10">
           {step ? (

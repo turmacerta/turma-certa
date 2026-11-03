@@ -7,7 +7,7 @@ import { useOrg } from "@/components/org-provider";
 import { StudentCreateDialog, StudentDetailDrawer } from "@/components/student-forms";
 import { Avatar, Badge, Button, EmptyState, ErrorState, LoadingList, PageHeader } from "@/components/ui";
 import { levelLabel } from "@/lib/classes";
-import { readQueryParam } from "@/lib/client-store";
+import { useClearQuery, useQueryParam } from "@/lib/client-store";
 import { normalize } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import type { Level, Student } from "@/lib/types";
@@ -34,7 +34,9 @@ export default function StudentsPage() {
   const total = students.data?.length ?? 0;
   const [query, setQuery] = useState("");
   const [level, setLevel] = useState("all");
-  const [creating, setCreating] = useState(() => Boolean(readQueryParam("new")));
+  const newParam = useQueryParam("new");
+  const clearQuery = useClearQuery();
+  const [creating, setCreating] = useState(() => Boolean(newParam));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const canEdit = can("students.manage");
 
@@ -142,7 +144,7 @@ export default function StudentsPage() {
 
       <Pagination {...paged} />
 
-      <StudentCreateDialog open={creating} orgId={orgId} levels={levels} onClose={() => setCreating(false)} onCreated={() => void students.reload()} />
+      <StudentCreateDialog open={creating} orgId={orgId} levels={levels} onClose={() => (newParam ? clearQuery() : setCreating(false))} onCreated={() => void students.reload()} />
       <StudentDetailDrawer orgId={orgId} student={selected} levels={levels} onClose={() => setSelectedId(null)} onChanged={() => void students.reload()} />
     </div>
   );

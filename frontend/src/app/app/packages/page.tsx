@@ -8,7 +8,7 @@ import { useConfirm, useToast } from "@/components/overlay";
 import { PackageDialog } from "@/components/package-forms";
 import { Badge, Button, Card, EmptyState, ErrorState, IconButton, LoadingList, PageHeader } from "@/components/ui";
 import { api } from "@/lib/api";
-import { readQueryParam } from "@/lib/client-store";
+import { useClearQuery, useQueryParam } from "@/lib/client-store";
 import { errorMessage } from "@/lib/errors";
 import { useI18n } from "@/lib/i18n";
 import { ROUTES } from "@/lib/navigation";
@@ -25,7 +25,9 @@ export default function PackagesPage() {
   const summary = useApi<BillingSummary>(base);
   const canManage = can("billing.manage");
   const copy = t.packages;
-  const [creating, setCreating] = useState(() => Boolean(readQueryParam("new")));
+  const newParam = useQueryParam("new");
+  const clearQuery = useClearQuery();
+  const [creating, setCreating] = useState(() => Boolean(newParam));
   const [editing, setEditing] = useState<BillingPlan | null>(null);
 
   const active = (plans.data ?? []).filter((plan) => plan.is_active !== false);
@@ -103,6 +105,8 @@ export default function PackagesPage() {
                 <span className="text-sm text-muted"> · {cycleLabel(plan.cycle_days)}</span>
               </p>
               <p className="text-sm text-muted">
+                {plan.weekly_classes ? t.billing.subscribeForm.weekly(plan.weekly_classes) : t.billing.subscribeForm.flexible}
+                {" · "}
                 {plan.lessons_per_cycle ? t.billing.lessonsInCycle(plan.lessons_per_cycle) : t.billing.freeLessons}
                 {plan.lessons_per_cycle ? ` · ${t.billing.perLesson(format.currency(Math.round(plan.price_cents / plan.lessons_per_cycle)))}` : ""}
               </p>
@@ -153,7 +157,7 @@ export default function PackagesPage() {
         </section>
       ) : null}
 
-      <PackageDialog open={creating} orgId={orgId} onClose={() => setCreating(false)} onSaved={() => void plans.reload()} />
+      <PackageDialog open={creating} orgId={orgId} onClose={() => (newParam ? clearQuery() : setCreating(false))} onSaved={() => void plans.reload()} />
       <PackageDialog open={Boolean(editing)} orgId={orgId} editing={editing} onClose={() => setEditing(null)} onSaved={() => void plans.reload()} />
     </div>
   );

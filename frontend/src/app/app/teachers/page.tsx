@@ -1,17 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { GraduationCap, Plus } from "lucide-react";
+import { GraduationCap, Pencil, Plus, Trash2 } from "lucide-react";
 import { SearchInput, Toolbar, Pagination, usePaged } from "@/components/data-view";
 import { useOrg } from "@/components/org-provider";
-import { Dialog, Drawer, useToast } from "@/components/overlay";
+import { Dialog, Drawer, useConfirm, useToast } from "@/components/overlay";
 import { PhotoInput } from "@/components/photo-input";
 import { Avatar, Badge, Button, Card, cn, EmptyState, ErrorState, Field, LoadingList, PageHeader, TextArea } from "@/components/ui";
 import { api } from "@/lib/api";
 import { isValidEmail } from "@/lib/auth";
 import { classTitle, scheduleSummary } from "@/lib/classes";
 import { errorMessage } from "@/lib/errors";
-import { hoursBetween, normalize } from "@/lib/format";
+import { hoursBetween, maskPhone, normalize } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { SportBadge, SportIcon } from "@/lib/sports";
 import type { ClassRow, Named, Teacher } from "@/lib/types";
@@ -46,6 +46,7 @@ export default function TeachersPage() {
 
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<Teacher | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const load = useMemo(() => {
@@ -125,9 +126,36 @@ export default function TeachersPage() {
 
       <Pagination {...paged} />
 
-      <TeacherCreateDialog open={creating} orgId={orgId} sports={sports.data ?? []} onClose={() => setCreating(false)} onCreated={() => void teachers.reload()} />
+      <TeacherDialog open={creating} orgId={orgId} sports={sports.data ?? []} onClose={() => setCreating(false)} onSaved={() => void teachers.reload()} />
+      <TeacherDialog
+        open={Boolean(editing)}
+        teacher={editing}
+        orgId={orgId}
+        sports={sports.data ?? []}
+        onClose={() => setEditing(null)}
+        onSaved={() => void teachers.reload()}
+        onDeleted={() => {
+          setEditing(null);
+          setSelectedId(null);
+          void teachers.reload();
+          void classes.reload();
+        }}
+      />
 
-      <Drawer open={Boolean(selected)} onClose={() => setSelectedId(null)} title={selected?.full_name ?? ""} subtitle={selected?.email ?? selected?.phone ?? undefined}>
+      <Drawer
+        open={Boolean(selected)}
+        onClose={() => setSelectedId(null)}
+        title={selected?.full_name ?? ""}
+        subtitle={selected?.email ?? selected?.phone ?? undefined}
+        footer={
+          selected && can("teachers.manage") ? (
+            <Button variant="outline" onClick={() => setEditing(selected)}>
+              <Pencil className="h-4 w-4" />
+              {t.teachers.form.editTitle}
+            </Button>
+          ) : null
+        }
+      >
         {selected ? (
           <div className="grid gap-6">
             <div className="flex items-center gap-4">
@@ -196,36 +224,55 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-type TeacherDialogProps = { open: boolean; orgId: string; sports: Named[]; onClose: () => void; onCreated: () => void };
+type TeacherDialogProps = {
+  open: boolean;
+  teacher?: Teacher | null;
+  orgId: string;
+  sports: Named[];
+  onClose: () => void;
+  onSaved: () => void;
+  onDeleted?: () => void;
+};
 
-function TeacherCreateDialog(props: TeacherDialogProps) {
-  return props.open ? <TeacherCreateDialogBody {...props} /> : null;
+function TeacherDialog(props: TeacherDialogProps) {
+  return props.open ? <TeacherDialogBody key={props.teacher?.id ?? "new"} {...props} /> : null;
 }
 
-function TeacherCreateDialogBody({ open, orgId, sports, onClose, onCreated }: TeacherDialogProps) {
+function TeacherDialogBody({ open, teacher, orgId, sports, onClose, onSaved, onDeleted }: TeacherDialogProps) {
   const { t } = useI18n();
   const toast = useToast();
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [bio, setBio] = useState("");
-  const [sportIds, setSportIds] = useState<string[]>([]);
+  const confirm = useConfirm();
+  const [fullName, setFullName] = useState(teacher?.full_name ?? "");
+  const [email, setEmail] = useState(teacher?.email ?? "");
+  const [phone, setPhone] = useState(teacher?.phone ? maskPhone(teacher.phone) : "");
+  const [bio, setBio] = useState(teacher?.bio ?? "");
+  const [sportIds, setSportIds] = useState<string[]>(() => (teacher?.teacher_sports ?? []).flatMap((link) => (link.sport ? [link.sport.id] : [])));
   const [saving, setSaving] = useState(false);
   const form = t.teachers.form;
+  const base = `/api/v1/organizations/${orgId}/teachers`;
 
-  const valid = fullName.trim().length >= 2 && isValidEmail(email.trim()) && phone.replace(/D/g, "").length >= 10;
+  const valid = fullName.trim().length >= 2 && isValidEmail(email.trim()) && phone.replace(/\D/g, "").length >= 10;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!valid || saving) return;
     setSaving(true);
     try {
-      const created = await api<{ access: "invited" | "linked" | "failed" }>(`/api/v1/organizations/${orgId}/teachers`, {
-        method: "POST",
-        body: JSON.stringify({ fullName: fullName.trim(), email: email.trim(), phone: phone.trim(), bio: bio.trim() || undefined, sportIds }),
-      });
-      toast({ message: t.access[created.access](fullName.trim(), email.trim()), tone: created.access === "failed" ? "error" : undefined });
-      onCreated();
+      if (teacher) {
+        await api(`${base}/${teacher.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ fullName: fullName.trim(), email: email.trim(), phone: phone.trim(), bio: bio.trim() }),
+        });
+        await api(`${base}/${teacher.id}/sports`, { method: "PUT", body: JSON.stringify({ sportIds }) });
+        toast({ message: form.saved });
+      } else {
+        const created = await api<{ access: "invited" | "linked" | "failed" }>(base, {
+          method: "POST",
+          body: JSON.stringify({ fullName: fullName.trim(), email: email.trim(), phone: phone.trim(), bio: bio.trim() || undefined, sportIds }),
+        });
+        toast({ message: t.access[created.access](fullName.trim(), email.trim()), tone: created.access === "failed" ? "error" : undefined });
+      }
+      onSaved();
       onClose();
     } catch (err) {
       toast({ message: errorMessage(err, t), tone: "error" });
@@ -234,19 +281,38 @@ function TeacherCreateDialogBody({ open, orgId, sports, onClose, onCreated }: Te
     }
   }
 
+  async function remove() {
+    if (!teacher) return;
+    const ok = await confirm({ title: form.deleteTitle(teacher.full_name), description: form.deleteText, confirmLabel: form.delete, tone: "danger" });
+    if (!ok) return;
+    try {
+      await api(`${base}/${teacher.id}`, { method: "DELETE" });
+      toast({ message: form.deleted(teacher.full_name) });
+      onDeleted?.();
+    } catch (err) {
+      toast({ message: errorMessage(err, t), tone: "error" });
+    }
+  }
+
   return (
     <Dialog
       open={open}
       onClose={onClose}
-      title={form.title}
-      description={form.description}
+      title={teacher ? form.editTitle : form.title}
+      description={teacher ? undefined : form.description}
       footer={
         <>
+          {teacher ? (
+            <Button variant="quiet-danger" onClick={() => void remove()} className="sm:mr-auto">
+              <Trash2 className="h-4 w-4" />
+              {form.delete}
+            </Button>
+          ) : null}
           <Button variant="ghost" onClick={onClose}>
             {t.common.cancel}
           </Button>
           <Button type="submit" form="teacher-form" disabled={!valid} loading={saving}>
-            {form.submit}
+            {teacher ? t.common.save : form.submit}
           </Button>
         </>
       }
@@ -261,7 +327,7 @@ function TeacherCreateDialogBody({ open, orgId, sports, onClose, onCreated }: Te
             onChange={(event) => setEmail(event.target.value)}
             error={email && !isValidEmail(email) ? t.auth.checkEmail : null}
           />
-          <Field label={form.phone} inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} />
+          <Field label={form.phone} inputMode="tel" value={phone} onChange={(event) => setPhone(maskPhone(event.target.value))} placeholder="(31) 99999-0000" />
         </div>
         {sports.length ? (
           <div className="grid gap-2">

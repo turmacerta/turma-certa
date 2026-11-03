@@ -42,6 +42,14 @@ const senders: Record<Channel, (message: OutgoingMessage) => Promise<ChannelResu
   },
 };
 
+export async function deliverEmail(message: OutgoingMessage): Promise<ChannelResult> {
+  try {
+    return await senders.email(message);
+  } catch (err) {
+    return { status: "failed", reason: err instanceof Error ? err.message : "UNKNOWN" };
+  }
+}
+
 export async function deliver(message: OutgoingMessage) {
   const results = await Promise.all(
     CHANNELS.map(async (channel) => {

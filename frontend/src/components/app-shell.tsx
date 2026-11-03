@@ -4,16 +4,15 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
+  ArrowLeftRight,
   Building2,
   Check,
   ChevronsUpDown,
   Eye,
   FlaskConical,
-  Languages,
   Lock,
   LogOut,
   Menu as MenuIcon,
-  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Package,
@@ -21,24 +20,21 @@ import {
   Receipt,
   Shield,
   ShieldCheck,
-  Sun,
   UserRound,
   Users,
   Volleyball,
 } from "lucide-react";
-import { LOCALE_OPTIONS, useI18n } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
 import { canAccess, homeFor, isActive, navigationFor, ROUTES } from "@/lib/navigation";
 import type { Permission } from "@/lib/permissions";
 import { createBrowserSupabase } from "@/lib/supabase/client";
-import { useTheme } from "@/lib/theme";
 import { usePersistentState } from "@/lib/use-api";
 import { BrandMark, LogoMark } from "./brand";
-import { LanguageSwitch } from "./language-switch";
 import { Menu, MenuDivider, MenuItem, MenuLabel } from "./menu";
 import { NotificationsMenu } from "./notifications-menu";
 import { useOrg } from "./org-provider";
 import { Drawer, useConfirm } from "./overlay";
-import { ThemeToggle } from "./theme-toggle";
+import { Preferences } from "./preferences";
 import { Avatar, Badge, Button, cn, EmptyState, Tooltip } from "./ui";
 import { useViewModeNavigation } from "./view-mode";
 
@@ -48,8 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const confirm = useConfirm();
-  const { t, locale, setLocale } = useI18n();
-  const { theme, toggle } = useTheme();
+  const { t } = useI18n();
   const org = useOrg();
   const [sidebar, setSidebar] = usePersistentState("tc-sidebar", "expanded", SIDEBAR_STATES);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -137,6 +132,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="hidden flex-1 lg:block" />
           {allowedActions.length ? <CreateMenu actions={allowedActions} /> : null}
+          <Preferences />
           <NotificationsMenu />
           <div className="flex items-center gap-1">
             <Menu
@@ -171,16 +167,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     }}
                   >
                     {t.nav.account}
-                  </MenuItem>
-                  <MenuItem icon={theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />} onClick={toggle}>
-                    {theme === "dark" ? t.common.themeLight : t.common.themeDark}
-                  </MenuItem>
-                  <MenuItem
-                    icon={<Languages className="h-4 w-4" />}
-                    hint={LOCALE_OPTIONS.find((option) => option.value !== locale)?.label}
-                    onClick={() => setLocale(locale === "en" ? "pt-BR" : "en")}
-                  >
-                    {LOCALE_OPTIONS.find((option) => option.value !== locale)?.name}
                   </MenuItem>
                   <MenuDivider />
                   <MenuItem
@@ -285,14 +271,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
-          <div className="mt-4 flex items-center justify-between rounded-2xl border border-line px-4 py-3">
-            <span className="font-semibold">{t.nav.theme}</span>
-            <ThemeToggle />
-          </div>
-          <div className="flex items-center justify-between rounded-2xl border border-line px-4 py-3">
-            <span className="font-semibold">{t.common.language}</span>
-            <LanguageSwitch />
-          </div>
         </div>
       </Drawer>
     </div>
@@ -395,7 +373,7 @@ function ContextSwitcher({ collapsed, compact }: { collapsed?: boolean; compact?
                   {org.persona === org.realPersona ? planLabel : t.shell.viewingAs(t.personas[org.persona])}
                 </span>
               </span>
-              <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted" />
+              <ArrowLeftRight className="h-4 w-4 shrink-0 text-muted" />
             </>
           )}
         </button>
@@ -413,7 +391,12 @@ function ContextSwitcher({ collapsed, compact }: { collapsed?: boolean; compact?
             <MenuItem
               key={membership.organization.id}
               icon={membership.organization.id === org.orgId ? <Check className="h-4 w-4 text-primary" /> : <Building2 className="h-4 w-4" />}
-              hint={<Badge tone="neutral">{t.roles[membership.role]}</Badge>}
+              hint={
+                <span className="flex flex-col items-end gap-0.5 text-[11px] text-muted">
+                  <span>{membership.organization.saas_plan === "school" ? t.shell.planSchool : t.shell.planAutonomous}</span>
+                  <span>{membership.org_role?.name ?? t.roles[membership.role]}</span>
+                </span>
+              }
               onClick={() => {
                 close();
                 org.switchOrg(membership.organization.id);
@@ -443,7 +426,7 @@ function ContextSwitcher({ collapsed, compact }: { collapsed?: boolean; compact?
               ))}
             </>
           ) : null}
-          {org.isPlatformAdmin ? (
+          {org.isStaff ? (
             <>
               <MenuDivider />
               <MenuItem

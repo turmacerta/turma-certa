@@ -33,7 +33,3 @@ export const enrollmentSchema = z.object({
 export const vacancyAlertSchema = z.object({
   studentId: z.string().uuid(),
 });
-
-export const mergeClassSchema = z.object({
-  targetClassId: z.string().uuid(),
-});

@@ -27,6 +27,7 @@ export const env = {
   supabaseAnonKey,
   supabaseServiceRoleKey,
   platformAdminEmails: parseEmailList(process.env.PLATFORM_ADMIN_EMAILS),
+  leadsEmail: process.env.LEADS_EMAIL ?? "turmacerta1910@gmail.com",
 };
 
 export function isSupabaseConfigured(): boolean {

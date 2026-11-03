@@ -70,3 +70,51 @@ catalogRouter.post(
     return created(res, await catalogService.createLevel(req.params.orgId, input));
   }),
 );
+
+catalogRouter.patch(
+  "/units/:unitId",
+  ...write,
+  asyncHandler(async (req, res) => ok(res, await catalogService.updateUnit(req.params.orgId, req.params.unitId, parseBody(unitSchema.partial(), req.body)))),
+);
+
+catalogRouter.delete(
+  "/units/:unitId",
+  ...write,
+  asyncHandler(async (req, res) => ok(res, await catalogService.deleteUnit(req.params.orgId, req.params.unitId))),
+);
+
+catalogRouter.patch(
+  "/spaces/:spaceId",
+  ...write,
+  asyncHandler(async (req, res) => ok(res, await catalogService.updateSpace(req.params.orgId, req.params.spaceId, parseBody(spaceSchema, req.body)))),
+);
+
+catalogRouter.delete(
+  "/spaces/:spaceId",
+  ...write,
+  asyncHandler(async (req, res) => ok(res, await catalogService.deleteSpace(req.params.orgId, req.params.spaceId))),
+);
+
+catalogRouter.patch(
+  "/sports/:sportId",
+  ...write,
+  asyncHandler(async (req, res) => ok(res, await catalogService.updateSport(req.params.orgId, req.params.sportId, parseBody(sportSchema, req.body)))),
+);
+
+catalogRouter.delete(
+  "/sports/:sportId",
+  ...write,
+  asyncHandler(async (req, res) => ok(res, await catalogService.deleteSport(req.params.orgId, req.params.sportId))),
+);
+
+catalogRouter.patch(
+  "/levels/:levelId",
+  ...write,
+  asyncHandler(async (req, res) => ok(res, await catalogService.updateLevel(req.params.orgId, req.params.levelId, parseBody(levelSchema.partial(), req.body)))),
+);
+
+catalogRouter.delete(
+  "/levels/:levelId",
+  ...write,
+  asyncHandler(async (req, res) => ok(res, await catalogService.deleteLevel(req.params.orgId, req.params.levelId))),
+);

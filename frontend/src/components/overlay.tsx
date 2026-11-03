@@ -5,8 +5,10 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -15,17 +17,41 @@ import { useMounted } from "@/lib/client-store";
 import { useI18n } from "@/lib/i18n";
 import { Button, cn, Field, IconButton } from "./ui";
 
-function useLockScroll(active: boolean) {
+const BASE_LAYER = 50;
+let layers: string[] = [];
+const listeners = new Set<() => void>();
+
+function emit() {
+  listeners.forEach((listener) => listener());
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function useLayer(active: boolean) {
+  const id = useId();
   useEffect(() => {
     if (!active) {
       return;
     }
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    layers = [...layers, id];
+    if (layers.length === 1) {
+      document.body.style.overflow = "hidden";
+    }
+    emit();
     return () => {
-      document.body.style.overflow = previous;
+      layers = layers.filter((item) => item !== id);
+      if (layers.length === 0) {
+        document.body.style.overflow = "";
+      }
+      emit();
     };
-  }, [active]);
+  }, [active, id]);
+  const stack = useSyncExternalStore(subscribe, () => layers, () => layers);
+  const index = stack.indexOf(id);
+  return { zIndex: BASE_LAYER + Math.max(index, 0) * 10, isTop: index >= 0 && index === stack.length - 1 };
 }
 
 function useEscape(active: boolean, onEscape: () => void) {
@@ -68,13 +94,13 @@ export function Dialog({
   dismissible?: boolean;
 }) {
   const { t } = useI18n();
+  const layer = useLayer(open);
   const close = useCallback(() => {
     if (dismissible) {
       onClose();
     }
   }, [dismissible, onClose]);
-  useLockScroll(open);
-  useEscape(open, close);
+  useEscape(open && layer.isTop, close);
 
   if (!open) {
     return null;
@@ -84,30 +110,38 @@ export function Dialog({
 
   return (
     <Portal>
-      <div className="fixed inset-0 z-50 grid items-end bg-black/40 backdrop-blur-sm sm:place-items-center sm:p-4" onMouseDown={close}>
+      <div
+        className="fixed inset-0 grid items-end bg-black/40 backdrop-blur-sm sm:place-items-center sm:p-4"
+        style={{ zIndex: layer.zIndex }}
+        onMouseDown={close}
+      >
         <div
           role="dialog"
           aria-modal="true"
           aria-label={title}
           onMouseDown={(event) => event.stopPropagation()}
           className={cn(
-            "animate-scale-in max-h-[92vh] w-full overflow-y-auto rounded-t-3xl border border-line bg-surface p-6 shadow-soft sm:rounded-3xl",
+            "animate-scale-in flex max-h-[92dvh] w-full flex-col rounded-t-3xl border border-line bg-surface shadow-soft sm:max-h-[88dvh] sm:rounded-3xl",
             width,
           )}
         >
-          <div className="flex items-start justify-between gap-4">
-            <div>
+          <div className="flex shrink-0 items-start justify-between gap-4 px-6 pb-4 pt-6">
+            <div className="min-w-0">
               <h2 className="display text-2xl font-semibold">{title}</h2>
               {description ? <div className="mt-1.5 text-sm text-muted">{description}</div> : null}
             </div>
             {dismissible ? (
-              <IconButton label={t.common.close} onClick={onClose} className="-mr-2 -mt-1">
+              <IconButton label={t.common.close} onClick={onClose} className="-mr-2 -mt-1 shrink-0">
                 <X className="h-5 w-5" />
               </IconButton>
             ) : null}
           </div>
-          {children ? <div className="mt-5">{children}</div> : null}
-          {footer ? <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">{footer}</div> : null}
+          {children ? <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-2">{children}</div> : null}
+          {footer ? (
+            <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-line px-6 py-4 sm:flex-row sm:justify-end">{footer}</div>
+          ) : (
+            <div className="h-4 shrink-0" />
+          )}
         </div>
       </div>
     </Portal>
@@ -130,8 +164,8 @@ export function Drawer({
   footer?: ReactNode;
 }) {
   const { t } = useI18n();
-  useLockScroll(open);
-  useEscape(open, onClose);
+  const layer = useLayer(open);
+  useEscape(open && layer.isTop, onClose);
 
   if (!open) {
     return null;
@@ -139,7 +173,7 @@ export function Drawer({
 
   return (
     <Portal>
-      <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm" onMouseDown={onClose}>
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" style={{ zIndex: layer.zIndex }} onMouseDown={onClose}>
         <aside
           role="dialog"
           aria-modal="true"
@@ -147,17 +181,17 @@ export function Drawer({
           onMouseDown={(event) => event.stopPropagation()}
           className="animate-slide-in absolute inset-y-0 right-0 flex w-full max-w-xl flex-col border-l border-line bg-surface shadow-soft"
         >
-          <header className="flex items-start justify-between gap-4 border-b border-line p-6">
+          <header className="flex shrink-0 items-start justify-between gap-4 border-b border-line p-6">
             <div className="min-w-0">
               <h2 className="display truncate text-2xl font-semibold">{title}</h2>
               {subtitle ? <div className="mt-1 text-sm text-muted">{subtitle}</div> : null}
             </div>
-            <IconButton label={t.common.close} onClick={onClose} className="-mr-2">
+            <IconButton label={t.common.close} onClick={onClose} className="-mr-2 shrink-0">
               <X className="h-5 w-5" />
             </IconButton>
           </header>
-          <div className="flex-1 overflow-y-auto p-6">{children}</div>
-          {footer ? <footer className="flex flex-wrap justify-end gap-2 border-t border-line p-4">{footer}</footer> : null}
+          <div className="min-h-0 flex-1 overflow-y-auto p-6">{children}</div>
+          {footer ? <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-line p-4">{footer}</footer> : null}
         </aside>
       </div>
     </Portal>
@@ -286,7 +320,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={push}>
       {children}
       <Portal>
-        <div className="pointer-events-none fixed inset-x-0 bottom-20 z-[60] flex flex-col items-center gap-2 px-4 lg:bottom-6" aria-live="polite">
+        <div className="pointer-events-none fixed inset-x-0 bottom-20 z-[100] flex flex-col items-center gap-2 px-4 lg:bottom-6" aria-live="polite">
           {toasts.map((toast) => (
             <div
               key={toast.id}

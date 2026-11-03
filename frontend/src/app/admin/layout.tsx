@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { AdminShell } from "@/components/admin-shell";
 import { LoadingMark } from "@/components/brand";
 import { api } from "@/lib/api";
+import { readStorage } from "@/lib/client-store";
 import { useI18n } from "@/lib/i18n";
 import { ROUTES } from "@/lib/navigation";
+import { CUSTOMER_MODE_KEY } from "@/lib/staff";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { t } = useI18n();
@@ -16,7 +18,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     api<{ isPlatformAdmin: boolean }>("/api/v1/me")
       .then((me) => {
-        if (me.isPlatformAdmin) {
+        if (me.isPlatformAdmin && readStorage(CUSTOMER_MODE_KEY) !== "on") {
           setReady(true);
         } else {
           router.replace(ROUTES.home);

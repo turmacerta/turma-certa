@@ -1,20 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowRight, Merge, Plus, Volleyball } from "lucide-react";
+import { Plus, Volleyball } from "lucide-react";
 import { ClassDetailDrawer, ClassFormDialog } from "@/components/class-drawers";
 import { FilterChips, SearchInput, Toolbar, Pagination, usePaged } from "@/components/data-view";
 import { useOrg } from "@/components/org-provider";
-import { Drawer, useConfirm, useToast } from "@/components/overlay";
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingList, OccupancyBar, PageHeader } from "@/components/ui";
-import { api } from "@/lib/api";
 import { classNickname, classTitle, OCCUPANCY_TONES, occupancyStatus, scheduleSummary } from "@/lib/classes";
-import { readQueryParam } from "@/lib/client-store";
-import { errorMessage } from "@/lib/errors";
+import { useClearQuery, useQueryParam } from "@/lib/client-store";
 import { normalize } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { SportBadge } from "@/lib/sports";
-import { suggestMerges, type MergeSuggestion } from "@/lib/optimizer";
 import type { ClassRow } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 
@@ -29,12 +25,12 @@ export default function ClassesPage() {
   const classes = useApi<ClassRow[]>(preview ? (teacherId ? `${base}/classes?teacherId=${teacherId}` : null) : `${base}/classes`);
   const [query, setQuery] = useState("");
   const [sport, setSport] = useState("all");
-  const [creating, setCreating] = useState(() => Boolean(readQueryParam("new")));
+  const newParam = useQueryParam("new");
+  const clearQuery = useClearQuery();
+  const [creating, setCreating] = useState(() => Boolean(newParam));
   const [selected, setSelected] = useState<string | null>(null);
-  const [optimizing, setOptimizing] = useState(false);
   const noSchedule = t.common.noSchedule;
   const scoped = useMemo(() => classes.data ?? [], [classes.data]);
-  const suggestions = useMemo(() => (canManage ? suggestMerges(scoped) : []), [canManage, scoped]);
 
   const sports = useMemo(() => {
     const map = new Map<string, { id: string; name: string; count: number }>();
@@ -71,19 +67,10 @@ export default function ClassesPage() {
         description={t.classes.description(scoped.length)}
         actions={
           canCreate ? (
-            <>
-              {suggestions.length > 0 ? (
-                <Button variant="outline" onClick={() => setOptimizing(true)}>
-                  <Merge className="h-4 w-4" />
-                  {t.classes.optimize}
-                  <Badge tone="primary">{suggestions.length}</Badge>
-                </Button>
-              ) : null}
-              <Button onClick={() => setCreating(true)}>
-                <Plus className="h-4 w-4" />
-                {t.classes.newClass}
-              </Button>
-            </>
+            <Button onClick={() => setCreating(true)}>
+              <Plus className="h-4 w-4" />
+              {t.classes.newClass}
+            </Button>
           ) : null
         }
       />
@@ -150,95 +137,9 @@ export default function ClassesPage() {
 
       <Pagination {...paged} />
 
-      <ClassFormDialog open={creating} orgId={orgId} onClose={() => setCreating(false)} onCreated={() => void classes.reload()} />
+      <ClassFormDialog open={creating} orgId={orgId} onClose={() => (newParam ? clearQuery() : setCreating(false))} onCreated={() => void classes.reload()} />
       <ClassDetailDrawer orgId={orgId} classId={selected} onClose={() => setSelected(null)} onChanged={() => void classes.reload()} readOnly={!canManage} />
-      <OptimizerDrawer open={optimizing} orgId={orgId} suggestions={suggestions} onClose={() => setOptimizing(false)} onMerged={() => void classes.reload()} />
     </div>
   );
 }
 
-function OptimizerDrawer({
-  open,
-  orgId,
-  suggestions,
-  onClose,
-  onMerged,
-}: {
-  open: boolean;
-  orgId: string;
-  suggestions: MergeSuggestion[];
-  onClose: () => void;
-  onMerged: () => void;
-}) {
-  const { t, locale } = useI18n();
-  const toast = useToast();
-  const confirm = useConfirm();
-  const [busy, setBusy] = useState<string | null>(null);
-  const copy = t.classes.optimizer;
-  const noSchedule = t.common.noSchedule;
-
-  async function merge(suggestion: MergeSuggestion) {
-    const source = `${classTitle(suggestion.source, t)} (${scheduleSummary(suggestion.source.class_schedules, locale, noSchedule)})`;
-    const target = `${classTitle(suggestion.target, t)} (${scheduleSummary(suggestion.target.class_schedules, locale, noSchedule)})`;
-    const ok = await confirm({ title: copy.confirmTitle, description: copy.confirmText(source, target), confirmLabel: copy.apply });
-    if (!ok) return;
-    setBusy(suggestion.source.id);
-    try {
-      await api(`/api/v1/organizations/${orgId}/classes/${suggestion.source.id}/merge`, {
-        method: "POST",
-        body: JSON.stringify({ targetClassId: suggestion.target.id }),
-      });
-      toast({ message: copy.applied });
-      onMerged();
-    } catch (err) {
-      toast({ message: errorMessage(err, t), tone: "error" });
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  return (
-    <Drawer open={open} onClose={onClose} title={copy.title} subtitle={copy.description}>
-      {suggestions.length === 0 ? (
-        <EmptyState icon={<Merge />} title={copy.emptyTitle} description={copy.emptyText} />
-      ) : (
-        <ul className="grid gap-3">
-          {suggestions.map((suggestion) => (
-            <li key={suggestion.source.id} className="grid gap-3 rounded-3xl border border-line p-4">
-              <div className="flex items-center gap-3">
-                <SportBadge name={suggestion.source.sport?.name} size="sm" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">{classTitle(suggestion.source, t)}</p>
-                  <p className="truncate text-xs text-muted">
-                    {scheduleSummary(suggestion.source.class_schedules, locale, noSchedule)} · {suggestion.source.occupancy.enrolled_count}/{suggestion.source.occupancy.max_capacity}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 rounded-2xl bg-surface-2 p-3">
-                <ArrowRight className="h-4 w-4 shrink-0 text-muted" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs text-muted">{copy.into}</p>
-                  <p className="truncate text-sm font-semibold">{classTitle(suggestion.target, t)}</p>
-                  <p className="truncate text-xs text-muted">
-                    {scheduleSummary(suggestion.target.class_schedules, locale, noSchedule)} · {suggestion.target.teacher?.full_name ?? t.common.toBeDefined}
-                  </p>
-                </div>
-              </div>
-              <ul className="grid gap-1 text-sm text-muted">
-                <li>{copy.moving(suggestion.moving)}</li>
-                <li>{copy.result(suggestion.enrolledAfter, suggestion.target.occupancy.max_capacity)}</li>
-                <li>{copy.frees(copy.hours(Math.round(suggestion.freedHours * 10) / 10))}</li>
-              </ul>
-              <div className="flex items-center justify-between gap-2">
-                {suggestion.samePeriod ? <Badge tone="success">{copy.samePeriod}</Badge> : <span />}
-                <Button size="sm" loading={busy === suggestion.source.id} disabled={Boolean(busy)} onClick={() => void merge(suggestion)}>
-                  {copy.apply}
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Drawer>
-  );
-}

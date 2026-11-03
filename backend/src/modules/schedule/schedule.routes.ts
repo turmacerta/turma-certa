@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { can, requireAuth, requireOrgMember, requirePermission, scopedTeacher } from "../../middleware/auth";
 import { asyncHandler, created, ok, parseBody } from "../../shared/http";
-import { attendanceSchema, cancelSessionSchema, generateSessionsSchema } from "./schedule.schema";
+import { cancelSessionSchema, generateSessionsSchema } from "./schedule.schema";
 import { scheduleService } from "./schedule.service";
 
 export const scheduleRouter = Router({ mergeParams: true });
@@ -53,18 +53,3 @@ scheduleRouter.get(
   asyncHandler(async (req, res) => ok(res, await scheduleService.attendance(req.params.orgId, req.params.sessionId))),
 );
 
-scheduleRouter.post(
-  "/sessions/:sessionId/attendance",
-  requirePermission("attendance.take"),
-  asyncHandler(async (req, res) => {
-    const input = parseBody(attendanceSchema, req.body);
-    return created(
-      res,
-      await scheduleService.markAttendance(
-        req.params.orgId,
-        req.params.sessionId,
-        input,
-      ),
-    );
-  }),
-);

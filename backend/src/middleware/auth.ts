@@ -21,14 +21,15 @@ export const requireAuth = asyncHandler(async (req, _res, next) => {
   }
 
   const isStaff = await resolvePlatformAdmin(data.user.id, data.user.email);
+  const customerMode = isStaff && req.header("x-customer-mode") === "on";
   const actingRole = req.header("x-act-as") as MemberRole | undefined;
-  const acting = isStaff && actingRole && ACTING_ROLES.includes(actingRole);
+  const acting = isStaff && !customerMode && actingRole && ACTING_ROLES.includes(actingRole);
 
   req.user = {
     id: data.user.id,
     email: data.user.email,
     isStaff,
-    isPlatformAdmin: isStaff && !acting,
+    isPlatformAdmin: isStaff && !customerMode,
     ...(acting ? { actingRole, actingTeacherId: req.header("x-act-as-teacher") || undefined } : {}),
   };
 

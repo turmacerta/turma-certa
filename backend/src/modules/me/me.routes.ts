@@ -13,7 +13,7 @@ export const meRouter = Router();
 
 async function supportOrganization(req: Request) {
   const orgId = typeof req.query.supportOrgId === "string" ? req.query.supportOrgId : "";
-  if (!req.user?.isStaff || !orgId) {
+  if (!req.user?.isPlatformAdmin || !orgId) {
     return null;
   }
   return unwrap(

@@ -1,12 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { BellRing, CalendarPlus, Pencil, Plus, Trash2, UserMinus, UserPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import { autoClassName, classNickname, classTitle, scheduleSummary } from "@/lib/classes";
 import { errorMessage } from "@/lib/errors";
 import { weekdayLong } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
+import { ROUTES } from "@/lib/navigation";
+import { activePackage } from "@/lib/plans";
 import { SportBadge } from "@/lib/sports";
 import type { ClassDetail, ClassFormat, Level, Named, Student, Teacher, Unit } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
@@ -62,7 +65,7 @@ function ClassFormDialogBody({ open, orgId, onClose, onCreated, editing }: Class
   const [levelId, setLevelId] = useState(editing?.class_level?.id ?? "");
   const [spaceId, setSpaceId] = useState(editing?.space?.id ?? "");
   const [format, setFormat] = useState<ClassFormat>(editing?.format ?? "group");
-  const [capacity, setCapacity] = useState(editing?.occupancy.max_capacity ?? 8);
+  const [capacity, setCapacity] = useState(editing?.occupancy?.max_capacity ?? editing?.max_capacity ?? 8);
   const [schedules, setSchedules] = useState<ScheduleDraft[]>(() =>
     editing?.class_schedules.length
       ? editing.class_schedules.map((item) => ({ weekday: item.weekday, startsAt: hhmm(item.starts_at), endsAt: hhmm(item.ends_at) }))
@@ -325,6 +328,10 @@ export function ClassDetailDrawer({
   const base = `/api/v1/organizations/${orgId}`;
   const detail = useApi<ClassDetail>(classId ? `${base}/classes/${classId}` : null);
   const students = useApi<Student[]>(classId && !readOnly ? `${base}/students` : null);
+  const { saasPlan, can } = useOrg();
+  const router = useRouter();
+  const school = saasPlan === "school";
+  const teachers = useApi<Teacher[]>(classId && !readOnly && school ? `${base}/teachers` : null);
   const [studentId, setStudentId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [editingOpen, setEditingOpen] = useState(false);
@@ -333,7 +340,7 @@ export function ClassDetailDrawer({
   const enrolled = (item?.enrollments ?? []).filter((enrollment) => enrollment.status === "active");
   const enrolledIds = new Set(enrolled.map((enrollment) => enrollment.student?.id));
   const candidates = (students.data ?? []).filter((student) => !enrolledIds.has(student.id));
-  const full = item ? enrolled.length >= item.occupancy.max_capacity : false;
+  const full = item ? enrolled.length >= (item.occupancy?.max_capacity ?? item.max_capacity ?? 0) : false;
   const nickname = item ? classNickname(item, t) : null;
 
   async function run(key: string, action: () => Promise<void>) {
@@ -347,14 +354,31 @@ export function ClassDetailDrawer({
     }
   }
 
+  const pickedStudent = candidates.find((student) => student.id === studentId);
+  const needsPackage = Boolean(pickedStudent && !activePackage(pickedStudent.subscriptions));
+
   function enroll() {
     if (!studentId || !classId) {
+      return;
+    }
+    if (needsPackage) {
+      router.push(`${ROUTES.billing}?new=subscription&student=${studentId}&class=${classId}`);
       return;
     }
     void run("enroll", async () => {
       await api(`${base}/classes/${classId}/enrollments`, { method: "POST", body: JSON.stringify({ studentId, status: full ? "waitlist" : "active" }) });
       toast({ message: full ? t.classes.detail.waitlisted : t.classes.detail.enrolled });
       setStudentId("");
+      await detail.reload();
+      onChanged();
+    });
+  }
+
+  function changeTeacher(teacherId: string) {
+    if (!classId) return;
+    void run("teacher", async () => {
+      await api(`${base}/classes/${classId}`, { method: "PATCH", body: JSON.stringify({ teacherId: teacherId || null }) });
+      toast({ message: t.classes.detail.teacherChanged });
       await detail.reload();
       onChanged();
     });
@@ -447,12 +471,30 @@ export function ClassDetailDrawer({
       {item ? (
         <div className="grid gap-6">
           <section className="grid gap-3 rounded-3xl border border-line bg-surface-2 p-4">
-            <OccupancyBar enrolled={enrolled.length} capacity={item.occupancy.max_capacity} />
+            <OccupancyBar enrolled={enrolled.length} capacity={item.occupancy?.max_capacity ?? item.max_capacity ?? 0} />
             <dl className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <dt className="text-xs text-muted">{t.classes.detail.teacher}</dt>
-                <dd className="font-semibold">{item.teacher?.full_name ?? t.common.toBeDefined}</dd>
-              </div>
+              {readOnly || !school ? (
+                <div>
+                  <dt className="text-xs text-muted">{t.classes.detail.teacher}</dt>
+                  <dd className="font-semibold">{item.teacher?.full_name ?? t.common.toBeDefined}</dd>
+                </div>
+              ) : (
+                <div className="col-span-2 sm:col-span-1">
+                  <Select
+                    label={t.classes.detail.teacher}
+                    value={item.teacher?.id ?? ""}
+                    onChange={changeTeacher}
+                    disabled={busy === "teacher"}
+                    placeholder={t.common.toBeDefined}
+                    options={[
+                      { value: "", label: t.common.toBeDefined },
+                      ...(teachers.data ?? [])
+                        .filter((teacher) => teacher.id === item.teacher?.id || !item.sport || teacher.teacher_sports?.some((link) => link.sport?.id === item.sport?.id))
+                        .map((teacher) => ({ value: teacher.id, label: teacher.full_name })),
+                    ]}
+                  />
+                </div>
+              )}
               <div>
                 <dt className="text-xs text-muted">{t.classes.detail.schedule}</dt>
                 <dd className="font-semibold">{scheduleSummary(item.class_schedules, locale, t.common.noSchedule)}</dd>
@@ -483,15 +525,19 @@ export function ClassDetailDrawer({
                     placeholder={t.classes.detail.pickStudent}
                     value={studentId}
                     onChange={setStudentId}
-                    options={candidates.map((student) => ({ value: student.id, label: student.full_name, description: student.class_level?.name }))}
+                    options={candidates.map((student) => ({
+                      value: student.id,
+                      label: student.full_name,
+                      description: [student.class_level?.name, activePackage(student.subscriptions) ? null : t.classes.detail.noPackage].filter(Boolean).join(" · ") || undefined,
+                    }))}
                   />
                 </div>
                 <Button onClick={enroll} disabled={!studentId} loading={busy === "enroll"}>
                   <UserPlus className="h-4 w-4" />
-                  {full ? t.classes.detail.waitlist : t.classes.detail.enroll}
+                  {needsPackage ? t.classes.detail.sellAndEnroll : full ? t.classes.detail.waitlist : t.classes.detail.enroll}
                 </Button>
               </div>
-              {full ? <p className="text-xs font-medium text-warning">{t.classes.detail.fullHint}</p> : null}
+              {needsPackage ? <p className="text-xs font-medium text-warning">{t.classes.detail.needsPackageHint}</p> : full ? <p className="text-xs font-medium text-warning">{t.classes.detail.fullHint}</p> : null}
             </section>
           )}
 
@@ -510,6 +556,20 @@ export function ClassDetailDrawer({
                       <Avatar name={enrollment.student?.full_name ?? "?"} size="sm" />
                       <span className="flex-1 truncate text-sm font-medium">{enrollment.student?.full_name}</span>
                       {levelMismatch ? <Badge tone="warning">{t.classes.detail.levelMismatch}</Badge> : null}
+                      {!readOnly && enrollment.student && !activePackage(enrollment.student.subscriptions) ? (
+                        can("billing.manage") ? (
+                          <button
+                            type="button"
+                            onClick={() => router.push(`${ROUTES.billing}?new=subscription&student=${enrollment.student!.id}`)}
+                            aria-label={t.classes.detail.sellPackageTo(enrollment.student.full_name)}
+                            className="rounded-full bg-warning-soft px-2.5 py-1 text-xs font-semibold text-warning transition hover:brightness-95"
+                          >
+                            {t.classes.detail.noPackage}
+                          </button>
+                        ) : (
+                          <Badge tone="warning">{t.classes.detail.noPackage}</Badge>
+                        )
+                      ) : null}
                       {readOnly || !enrollment.student ? null : (
                         <IconButton
                           label={t.classes.detail.unenrollOf(enrollment.student.full_name)}

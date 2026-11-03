@@ -304,11 +304,11 @@ async function main() {
   }
 
   const plans = await insert("billing_plans", [
-    { organization_id: orgId, name: "Tênis 1x por Semana", format: "group", lessons_per_cycle: 4, cycle_days: 30, price_cents: 28000 },
-    { organization_id: orgId, name: "Tênis 2x por Semana", format: "group", lessons_per_cycle: 8, cycle_days: 30, price_cents: 48000 },
-    { organization_id: orgId, name: "Beach Tennis 2x por Semana", format: "group", lessons_per_cycle: 8, cycle_days: 30, price_cents: 26000 },
-    { organization_id: orgId, name: "Futevôlei Livre", format: "group", lessons_per_cycle: 8, cycle_days: 30, price_cents: 22000 },
-    { organization_id: orgId, name: "Funcional 3x por Semana", format: "group", lessons_per_cycle: 12, cycle_days: 30, price_cents: 19900 },
+    { organization_id: orgId, name: "Tênis 1x por Semana", format: "group", sport_id: sport("Tênis").id, weekly_classes: 1, lessons_per_cycle: 4, cycle_days: 30, price_cents: 28000 },
+    { organization_id: orgId, name: "Tênis 2x por Semana", format: "group", sport_id: sport("Tênis").id, weekly_classes: 2, lessons_per_cycle: 8, cycle_days: 30, price_cents: 48000 },
+    { organization_id: orgId, name: "Beach Tennis 2x por Semana", format: "group", sport_id: sport("Beach Tennis").id, weekly_classes: 2, lessons_per_cycle: 8, cycle_days: 30, price_cents: 26000 },
+    { organization_id: orgId, name: "Futevôlei Livre", format: "group", sport_id: sport("Futevôlei").id, lessons_per_cycle: 8, cycle_days: 30, price_cents: 22000 },
+    { organization_id: orgId, name: "Funcional 3x por Semana", format: "group", sport_id: sport("Funcional").id, weekly_classes: 3, lessons_per_cycle: 12, cycle_days: 30, price_cents: 19900 },
     { organization_id: orgId, name: "Particular · Pacote 4 Aulas", format: "private", lessons_per_cycle: 4, cycle_days: 30, price_cents: 60000 },
   ]);
   const plan = (name: string) => plans.find((item) => item.name === name)!;

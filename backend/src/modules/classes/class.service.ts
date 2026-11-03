@@ -2,13 +2,12 @@ import { getAdminClient, unwrap } from "../../infrastructure/supabase/client";
 import { Errors } from "../../shared/errors";
 import { planOf } from "../../shared/plans";
 import { scheduleService } from "../schedule/schedule.service";
-import { notificationService } from "../notifications/notification.service";
 import type { z } from "zod";
 import type {
   classGroupSchema,
   classGroupUpdateSchema,
   enrollmentSchema,
-  mergeClassSchema,
+  
   vacancyAlertSchema,
 } from "./class.schema";
 
@@ -70,7 +69,7 @@ export class ClassService {
           sport:sports(id, name),
           teacher:teachers(id, full_name),
           class_level:class_levels(id, name, rank),
-          enrollments(*, student:students(*)),
+          enrollments(*, student:students(*, subscriptions:student_subscriptions(status))),
           unit:units(id, name),
           space:spaces(id, name),
           class_schedules(*)
@@ -85,7 +84,9 @@ export class ClassService {
       throw Errors.notFound("Class");
     }
 
-    return classGroup;
+    const enrolled = ((classGroup.enrollments ?? []) as Array<{ status: string }>).filter((item) => item.status === "active").length;
+    const maxCapacity = classGroup.max_capacity as number;
+    return { ...classGroup, occupancy: { enrolled_count: enrolled, vacancies: Math.max(0, maxCapacity - enrolled), max_capacity: maxCapacity } };
   }
 
   private async defaultTeacher(orgId: string) {
@@ -232,6 +233,40 @@ export class ClassService {
     }
   }
 
+  private async assertPackageSlot(studentId: string, classId: string, classGroup: { sport_id: string; format: string }) {
+    const subscriptions = unwrap(
+      await getAdminClient()
+        .from("student_subscriptions")
+        .select("status, billing_plan:billing_plans(sport_id, format, weekly_classes)")
+        .eq("student_id", studentId)
+        .in("status", ["active", "past_due"]),
+    ) as unknown as Array<{ billing_plan: { sport_id: string | null; format: string; weekly_classes: number | null } | null }>;
+    const plans = subscriptions
+      .map((item) => item.billing_plan)
+      .filter((plan): plan is NonNullable<typeof plan> => Boolean(plan) && (!plan!.sport_id || plan!.sport_id === classGroup.sport_id) && plan!.format === classGroup.format);
+    if (!plans.length) {
+      throw Errors.conflict("The student has no package for this class.", "NO_PACKAGE");
+    }
+    if (plans.some((plan) => !plan.weekly_classes)) {
+      return;
+    }
+    const slots = plans.reduce((sum, plan) => sum + (plan.weekly_classes ?? 0), 0);
+    const enrollments = unwrap(
+      await getAdminClient()
+        .from("enrollments")
+        .select("class_group_id, class_group:class_groups!inner(sport_id, format, is_active)")
+        .eq("student_id", studentId)
+        .in("status", ["active", "waitlist"])
+        .eq("class_group.is_active", true)
+        .eq("class_group.sport_id", classGroup.sport_id)
+        .eq("class_group.format", classGroup.format),
+    ) as Array<{ class_group_id: string }>;
+    const used = enrollments.filter((item) => item.class_group_id !== classId).length;
+    if (used >= slots) {
+      throw Errors.conflict("The student's package has no free weekly slot.", "PACKAGE_FULL");
+    }
+  }
+
   async enroll(
     orgId: string,
     classId: string,
@@ -265,6 +300,10 @@ export class ClassService {
 
     if (!student) {
       throw Errors.notFound("Student");
+    }
+
+    if (input.status === "active" || input.status === "waitlist") {
+      await this.assertPackageSlot(input.studentId, classId, classGroup as { sport_id: string; format: string });
     }
 
     return {
@@ -388,76 +427,6 @@ export class ClassService {
     return { notified };
   }
 
-  async merge(orgId: string, sourceId: string, input: z.infer<typeof mergeClassSchema>) {
-    if (sourceId === input.targetClassId) {
-      throw Errors.validation({ targetClassId: "SAME_CLASS" });
-    }
-
-    const [source, target] = await Promise.all([
-      this.get(orgId, sourceId),
-      this.get(orgId, input.targetClassId),
-    ]);
-
-    if (
-      source.sport_id !== target.sport_id ||
-      (source.class_level_id ?? null) !== (target.class_level_id ?? null) ||
-      source.format !== "group" ||
-      target.format !== "group"
-    ) {
-      throw Errors.conflict("Only group classes with the same sport and level can be merged.", "MERGE_MISMATCH");
-    }
-
-    type Enrollment = { status: string; student_id: string };
-    const targetActive = new Set(
-      ((target.enrollments ?? []) as Enrollment[])
-        .filter((item) => item.status === "active")
-        .map((item) => item.student_id),
-    );
-    const moving = ((source.enrollments ?? []) as Enrollment[])
-      .filter((item) => item.status === "active" && !targetActive.has(item.student_id))
-      .map((item) => item.student_id);
-
-    if (targetActive.size + moving.length > (target.max_capacity as number)) {
-      throw Errors.conflict("The target class does not have enough spots.", "CLASS_FULL");
-    }
-
-    if (moving.length > 0) {
-      unwrap(
-        await getAdminClient()
-          .from("enrollments")
-          .upsert(
-            moving.map((studentId) => ({ class_group_id: target.id, student_id: studentId, status: "active" })),
-            { onConflict: "class_group_id,student_id" },
-          ),
-      );
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-    unwrap(
-      await getAdminClient()
-        .from("enrollments")
-        .update({ status: "cancelled", ended_at: today })
-        .eq("class_group_id", sourceId)
-        .in("status", ["active", "waitlist", "paused"]),
-    );
-    unwrap(
-      await getAdminClient()
-        .from("class_sessions")
-        .update({ cancelled_at: new Date().toISOString() })
-        .eq("class_group_id", sourceId)
-        .gt("starts_at", new Date().toISOString())
-        .is("cancelled_at", null),
-    );
-    unwrap(
-      await getAdminClient().from("class_groups").update({ is_active: false }).eq("id", sourceId),
-    );
-
-    if (moving.length > 0) {
-      await notificationService.notifyMerge(orgId, moving, target.id as string);
-    }
-
-    return { moved: moving.length, targetClassId: target.id };
-  }
 }
 
 export const classService = new ClassService();

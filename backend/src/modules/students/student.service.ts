@@ -4,7 +4,9 @@ import { expiresIn, lessonRules } from "../../shared/rules";
 import type { z } from "zod";
 import type { creditSchema, guardianSchema, studentSchema } from "./student.schema";
 
-const STUDENT_FIELDS = "*, class_level:class_levels(id, name, rank, sport:sports(id, name)), guardian:guardians(id, full_name, email, phone, profile_id)";
+const STUDENT_FIELDS =
+  "*, class_level:class_levels(id, name, rank, sport:sports(id, name)), guardian:guardians(id, full_name, email, phone, profile_id), subscriptions:student_subscriptions(id, status, current_period_end, billing_plan:billing_plans(id, name, format, sport_id, weekly_classes))";
+const STUDENT_DETAIL_FIELDS = `${STUDENT_FIELDS}, enrollments(id, status, class_group:class_groups(id, name, format, is_active, sport:sports(id, name), class_level:class_levels(id, name), class_schedules(weekday, starts_at, ends_at)))`;
 
 function assertContact(input: z.infer<typeof studentSchema>) {
   if (!input.guardian && (!input.email || !input.phone)) {
@@ -81,7 +83,7 @@ export class StudentService {
     const student = unwrap(
       await getAdminClient()
         .from("students")
-        .select(STUDENT_FIELDS)
+        .select(STUDENT_DETAIL_FIELDS)
         .eq("organization_id", orgId)
         .eq("id", studentId)
         .maybeSingle(),
@@ -130,6 +132,22 @@ export class StudentService {
     }
 
     return student;
+  }
+
+  async remove(orgId: string, studentId: string) {
+    const student = (await this.get(orgId, studentId)) as { profile_id?: string | null; guardian?: { id: string; profile_id: string | null } | null };
+    unwrap(await getAdminClient().from("students").delete().eq("organization_id", orgId).eq("id", studentId));
+    const profiles = [student.profile_id, student.guardian?.profile_id].filter((id): id is string => Boolean(id));
+    for (const profileId of profiles) {
+      const [own, guarded] = await Promise.all([
+        getAdminClient().from("students").select("id").eq("organization_id", orgId).eq("profile_id", profileId).limit(1),
+        getAdminClient().from("students").select("id, guardian:guardians!inner(profile_id)").eq("organization_id", orgId).eq("guardian.profile_id", profileId).limit(1),
+      ]);
+      if (!(unwrap(own) ?? []).length && !(unwrap(guarded) ?? []).length) {
+        unwrap(await getAdminClient().from("organization_members").delete().eq("organization_id", orgId).eq("profile_id", profileId).eq("role", "student"));
+      }
+    }
+    return { id: studentId };
   }
 
   async setPhoto(orgId: string, studentId: string, url: string) {

@@ -2,18 +2,20 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { CircleCheck, CircleDollarSign, Receipt, RefreshCcw, Send } from "lucide-react";
+import { Check, CircleCheck, CircleDollarSign, Receipt, RefreshCcw, Send } from "lucide-react";
 import { DataTable, FilterChips, Pagination, SearchInput, Toolbar, usePaged } from "@/components/data-view";
 import { useOrg } from "@/components/org-provider";
 import { Dialog, useConfirm, useToast } from "@/components/overlay";
 import { Avatar, Badge, Button, cn, EmptyState, ErrorState, InlineAlert, LoadingList, MockBadge, PageHeader, Select, StatCard, Tabs } from "@/components/ui";
 import { api } from "@/lib/api";
-import { readQueryParam } from "@/lib/client-store";
+import { useClearQuery, useQueryParam } from "@/lib/client-store";
 import { errorMessage } from "@/lib/errors";
+import { classOption } from "@/lib/classes";
 import { daysUntil, normalize } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { ROUTES } from "@/lib/navigation";
-import type { BillingPlan, BillingSummary, Invoice, Student } from "@/lib/types";
+import { activePackage } from "@/lib/plans";
+import type { BillingPlan, BillingSummary, ClassRow, Invoice, Student } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 
 type Tab = "overdue" | "renewals" | "invoices";
@@ -36,8 +38,7 @@ type Subscription = {
 
 type Debtor = { id: string; name: string; total: number; oldest: string; invoices: Invoice[] };
 
-function initialTab(): Tab | null {
-  const tab = readQueryParam("tab");
+function asTab(tab: string | null): Tab | null {
   return tab === "overdue" || tab === "renewals" || tab === "invoices" ? tab : null;
 }
 
@@ -50,11 +51,14 @@ export default function BillingPage() {
   const base = `/api/v1/organizations/${orgId}/billing`;
   const summary = useApi<BillingSummary>(base);
   const plans = useApi<BillingPlan[]>(`${base}/plans`);
-  const [pickedTab, setTab] = useState<Tab | null>(initialTab);
+  const tabParam = useQueryParam("tab");
+  const newParam = useQueryParam("new");
+  const clearQuery = useClearQuery();
+  const [pickedTab, setTab] = useState<Tab | null>(() => asTab(tabParam));
   const [query, setQuery] = useState("");
   const [invoiceFilter, setInvoiceFilter] = useState<InvoiceFilter>("all");
   const [sending, setSending] = useState<string | null>(null);
-  const [subscribing, setSubscribing] = useState(() => readQueryParam("new") === "subscription");
+  const [subscribing, setSubscribing] = useState(() => newParam === "subscription");
 
   const subscriptions = useMemo(() => (summary.data?.subscriptions ?? []) as Subscription[], [summary.data]);
   const upcoming = useMemo(
@@ -327,7 +331,7 @@ export default function BillingPage() {
         </div>
       ) : null}
 
-      <SubscribeDialog open={subscribing} orgId={orgId} plans={(plans.data ?? []).filter((plan) => plan.is_active !== false)} onClose={() => setSubscribing(false)} onCreated={() => void summary.reload()} />
+      <SubscribeDialog open={subscribing} orgId={orgId} plans={(plans.data ?? []).filter((plan) => plan.is_active !== false)} onClose={() => (newParam ? clearQuery() : setSubscribing(false))} onCreated={() => void summary.reload()} />
     </div>
   );
 }
@@ -339,23 +343,36 @@ function SubscribeDialog(props: DialogProps & { plans: BillingPlan[] }) {
 }
 
 function SubscribeDialogBody({ open, orgId, plans, onClose, onCreated }: DialogProps & { plans: BillingPlan[] }) {
-  const { t, format } = useI18n();
+  const { t, format, locale } = useI18n();
   const toast = useToast();
   const students = useApi<Student[]>(`/api/v1/organizations/${orgId}/students`);
-  const [studentId, setStudentId] = useState("");
-  const [planId, setPlanId] = useState(() => readQueryParam("plan") ?? (plans.length === 1 ? plans[0].id : ""));
+  const classes = useApi<ClassRow[]>(`/api/v1/organizations/${orgId}/classes`);
+  const studentParam = useQueryParam("student");
+  const planParam = useQueryParam("plan");
+  const [studentId, setStudentId] = useState(() => studentParam ?? "");
+  const classParam = useQueryParam("class");
+  const [classIds, setClassIds] = useState<string[]>(() => (classParam ? [classParam] : []));
+  const studentDetail = useApi<Student>(studentId ? `/api/v1/organizations/${orgId}/students/${studentId}` : null);
+  const [planId, setPlanId] = useState(() => planParam ?? (plans.length === 1 ? plans[0].id : ""));
   const [saving, setSaving] = useState(false);
   const form = t.billing.subscribeForm;
   const cycles = t.billing.planForm.cycles;
   const plan = plans.find((item) => item.id === planId);
+  const current = studentDetail.data?.id === studentId ? activePackage(studentDetail.data.subscriptions) : null;
+  const inClasses = new Set((studentDetail.data?.id === studentId ? (studentDetail.data.enrollments ?? []) : []).filter((item) => item.status === "active" || item.status === "waitlist").map((item) => item.class_group?.id));
+  const classChoices = (classes.data ?? []).filter((item) => item.is_active !== false && !inClasses.has(item.id) && (!plan || (item.format === plan.format && (!plan.sport_id || item.sport?.id === plan.sport_id))));
+  const picked = classIds.filter((id) => classChoices.some((item) => item.id === id));
+  const needed = plan?.weekly_classes ?? 0;
+  const classesReady = !needed || picked.length === needed;
+  const toggleClass = (id: string) => setClassIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : needed && current.length >= needed ? [...current.slice(1), id] : [...current, id]));
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!studentId || !planId || saving) return;
+    if (!studentId || !planId || !classesReady || saving) return;
     setSaving(true);
     try {
-      await api(`/api/v1/organizations/${orgId}/billing/subscriptions`, { method: "POST", body: JSON.stringify({ studentId, billingPlanId: planId, autoRenew: true }) });
-      toast({ message: form.done });
+      await api(`/api/v1/organizations/${orgId}/billing/subscriptions`, { method: "POST", body: JSON.stringify({ studentId, billingPlanId: planId, autoRenew: true, classIds: picked }) });
+      toast({ message: picked.length ? form.doneEnrolled : form.done });
       onCreated();
       onClose();
     } catch (err) {
@@ -376,7 +393,7 @@ function SubscribeDialogBody({ open, orgId, plans, onClose, onCreated }: DialogP
           <Button variant="ghost" onClick={onClose}>
             {t.common.cancel}
           </Button>
-          <Button type="submit" form="subscribe-form" disabled={!studentId || !planId} loading={saving}>
+          <Button type="submit" form="subscribe-form" disabled={!studentId || !planId || !classesReady} loading={saving}>
             {plan ? form.submitFor(format.currency(plan.price_cents)) : form.submit}
           </Button>
         </>
@@ -401,10 +418,13 @@ function SubscribeDialogBody({ open, orgId, plans, onClose, onCreated }: DialogP
             searchable
             placeholder={students.data ? form.pickStudent : t.common.loading}
             value={studentId}
-            onChange={setStudentId}
+            onChange={(value) => {
+              setStudentId(value);
+            }}
             options={(students.data ?? []).map((student) => ({ value: student.id, label: student.full_name, description: student.class_level?.name }))}
           />
         )}
+        {current ? <InlineAlert tone="warning" title={form.hasPackage(current.billing_plan?.name ?? "", current.current_period_end ? format.date(current.current_period_end) : "")} /> : null}
 
         <div className="grid gap-2">
           <p className="text-sm font-semibold">{form.plan}</p>
@@ -433,7 +453,7 @@ function SubscribeDialogBody({ open, orgId, plans, onClose, onCreated }: DialogP
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold">{item.name}</span>
                       <span className="block truncate text-xs text-muted">
-                        {cycles[String(item.cycle_days)] ?? form.everyDays(item.cycle_days)} · {item.lessons_per_cycle ? form.credits(item.lessons_per_cycle) : form.unlimited}
+                        {[item.weekly_classes ? form.weekly(item.weekly_classes) : form.flexible, cycles[String(item.cycle_days)] ?? form.everyDays(item.cycle_days), item.lessons_per_cycle ? form.credits(item.lessons_per_cycle) : form.unlimited].join(" · ")}
                       </span>
                     </span>
                     <span className="tabular shrink-0 font-semibold">{format.currency(item.price_cents)}</span>
@@ -443,6 +463,40 @@ function SubscribeDialogBody({ open, orgId, plans, onClose, onCreated }: DialogP
             </div>
           )}
         </div>
+        {studentId && plan && needed ? (
+          <div className="grid gap-2">
+            <p className="flex items-center justify-between text-sm font-semibold">
+              {form.pickClasses(needed)}
+              <span className="tabular text-xs text-muted">{form.picked(picked.length, needed)}</span>
+            </p>
+            {classChoices.length === 0 ? (
+              <InlineAlert tone="warning" title={form.noClasses} />
+            ) : (
+              <div className="grid max-h-64 gap-2 overflow-y-auto">
+                {classChoices.map((item) => {
+                  const option = classOption(item, t, locale);
+                  const on = picked.includes(item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={on}
+                      onClick={() => toggleClass(item.id)}
+                      className={cn("flex items-center gap-3 rounded-2xl border px-4 py-2.5 text-left transition", on ? "border-primary bg-primary-soft" : "border-line hover:border-primary/40")}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold">{option.label}</span>
+                        <span className="block truncate text-xs text-muted">{option.description}</span>
+                      </span>
+                      {on ? <Check className="h-4 w-4 shrink-0 text-primary" /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : null}
       </form>
     </Dialog>
   );

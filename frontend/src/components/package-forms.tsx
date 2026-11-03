@@ -4,7 +4,8 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { useI18n } from "@/lib/i18n";
-import type { BillingPlan, ClassFormat } from "@/lib/types";
+import type { BillingPlan, ClassFormat, Named } from "@/lib/types";
+import { useApi } from "@/lib/use-api";
 import { Dialog, useToast } from "./overlay";
 import { Button, Checkbox, Field, Segmented, Select, Stepper } from "./ui";
 
@@ -28,6 +29,10 @@ function PackageDialogBody({ open, orgId, editing, onClose, onSaved }: PackageDi
   const [unlimited, setUnlimited] = useState(editing ? editing.lessons_per_cycle === null : false);
   const [lessons, setLessons] = useState(editing?.lessons_per_cycle ?? 8);
   const [cycle, setCycle] = useState(String(editing?.cycle_days ?? 30));
+  const sports = useApi<Named[]>(`/api/v1/organizations/${orgId}/sports`);
+  const [sportId, setSportId] = useState(editing?.sport_id ?? "");
+  const [flexible, setFlexible] = useState(editing ? !editing.weekly_classes : false);
+  const [weekly, setWeekly] = useState(editing?.weekly_classes ?? 2);
   const [saving, setSaving] = useState(false);
 
   const cents = Math.round(Number(price.replace(/\./g, "").replace(",", ".")) * 100);
@@ -39,7 +44,7 @@ function PackageDialogBody({ open, orgId, editing, onClose, onSaved }: PackageDi
     event.preventDefault();
     if (!valid || saving) return;
     setSaving(true);
-    const body = { name: name.trim(), cycleDays: Number(cycle), lessonsPerCycle: unlimited ? null : lessons, priceCents: cents };
+    const body = { name: name.trim(), cycleDays: Number(cycle), lessonsPerCycle: unlimited ? null : lessons, priceCents: cents, sportId: sportId || null, weeklyClasses: flexible ? null : weekly };
     try {
       if (editing) {
         await api(`/api/v1/organizations/${orgId}/billing/plans/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -47,7 +52,7 @@ function PackageDialogBody({ open, orgId, editing, onClose, onSaved }: PackageDi
       } else {
         await api(`/api/v1/organizations/${orgId}/billing/plans`, {
           method: "POST",
-          body: JSON.stringify({ ...body, format: planFormat, lessonsPerCycle: unlimited ? undefined : lessons }),
+          body: JSON.stringify({ ...body, format: planFormat, lessonsPerCycle: unlimited ? undefined : lessons, sportId: sportId || undefined, weeklyClasses: flexible ? undefined : weekly }),
         });
         toast({ message: form.created(name.trim()) });
       }
@@ -90,6 +95,28 @@ function PackageDialogBody({ open, orgId, editing, onClose, onSaved }: PackageDi
           />
         )}
         <Field label={form.name} value={name} onChange={(event) => setName(event.target.value)} placeholder={form.namePlaceholder} autoFocus />
+        <Select
+          label={form.sport}
+          value={sportId}
+          onChange={setSportId}
+          options={[{ value: "", label: form.anySport }, ...(sports.data ?? []).map((sport) => ({ value: sport.id, label: sport.name }))]}
+        />
+        <div className="grid gap-3">
+          {flexible ? null : (
+            <Stepper
+              label={form.weekly}
+              hint={form.weeklyHint}
+              value={weekly}
+              onChange={(value) => {
+                setWeekly(value);
+                if (!unlimited) setLessons(value * 4);
+              }}
+              min={1}
+              max={7}
+            />
+          )}
+          <Checkbox label={form.flexible} checked={flexible} onChange={setFlexible} />
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label={form.price} inputMode="decimal" value={price} onChange={(event) => setPrice(event.target.value.replace(/[^\d,.]/g, ""))} placeholder={form.pricePlaceholder} />
           <Select label={form.cycle} value={cycle} onChange={setCycle} options={cycleOptions} />

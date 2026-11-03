@@ -31,12 +31,24 @@ export function errorMessage(error: unknown, t: Messages) {
       const details = error.details as { resource?: string; limit?: number } | undefined;
       return t.errors.planLimit(t.errors.planResources[details?.resource ?? ""] ?? "", details?.limit ?? 0);
     }
-    case "MERGE_MISMATCH":
-      return t.errors.mergeMismatch;
     case "PERMISSION_ESCALATION":
       return t.errors.permissionEscalation;
     case "ROLE_IN_USE":
       return t.errors.roleInUse;
+    case "UNIT_IN_USE":
+    case "SPACE_IN_USE":
+    case "LEVEL_IN_USE":
+      return t.errors.catalogInUse;
+    case "SPORT_IN_USE":
+      return t.errors.sportInUse;
+    case "RATE_LIMITED":
+      return t.errors.rateLimited;
+    case "NO_PACKAGE":
+      return t.errors.noPackage;
+    case "PACKAGE_FULL":
+      return t.errors.packageFull;
+    case "PACKAGE_CLASSES":
+      return t.errors.packageClasses;
     case "PLAN_ARCHIVED":
       return t.errors.planArchived;
     case "ROLE_TEMPLATE":

@@ -75,3 +75,15 @@ teacherRouter.post(
   manage,
   asyncHandler(async (req, res) => ok(res, await teamService.grantTeacherAccess(req.params.orgId, req.params.teacherId))),
 );
+
+teacherRouter.patch(
+  "/:teacherId",
+  requirePermission("teachers.manage"),
+  asyncHandler(async (req, res) => ok(res, await teacherService.update(req.params.orgId, req.params.teacherId, parseBody(teacherSchema.omit({ sportIds: true }).partial(), req.body)))),
+);
+
+teacherRouter.delete(
+  "/:teacherId",
+  requirePermission("teachers.manage"),
+  asyncHandler(async (req, res) => ok(res, await teacherService.remove(req.params.orgId, req.params.teacherId))),
+);

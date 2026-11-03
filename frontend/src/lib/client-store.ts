@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useSyncExternalStore } from "react";
 
 const STORAGE_EVENT = "tc-storage";
@@ -105,9 +106,12 @@ export function useNow() {
   );
 }
 
-export function readQueryParam(name: string) {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  return new URLSearchParams(window.location.search).get(name);
+export function useClearQuery() {
+  const router = useRouter();
+  const pathname = usePathname();
+  return useCallback(() => router.replace(pathname), [router, pathname]);
+}
+
+export function useQueryParam(name: string) {
+  return useSearchParams().get(name);
 }

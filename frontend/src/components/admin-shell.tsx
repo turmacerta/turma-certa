@@ -7,9 +7,8 @@ import { useI18n } from "@/lib/i18n";
 import { ROUTES } from "@/lib/navigation";
 import { createBrowserSupabase } from "@/lib/supabase/client";
 import { BrandMark } from "./brand";
-import { LanguageSwitch } from "./language-switch";
 import { useConfirm } from "./overlay";
-import { ThemeToggle } from "./theme-toggle";
+import { Preferences } from "./preferences";
 import { Button, IconButton } from "./ui";
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
@@ -39,8 +38,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             <AppWindow className="h-4 w-4" />
             <span className="hidden sm:inline">{t.admin.openApp}</span>
           </Button>
-          <span className="hidden sm:contents"><LanguageSwitch /></span>
-          <ThemeToggle />
+          <Preferences />
           <IconButton label={t.common.signOut} onClick={() => void signOut()}>
             <LogOut className="h-[18px] w-[18px]" />
           </IconButton>

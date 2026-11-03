@@ -9,7 +9,10 @@ export { usePersistentState } from "./client-store";
 
 type ApiState<T> = { path: string | null; data: T | null; error: unknown };
 
-export function useApi<T>(path: string | null) {
+const STAFF_HEADERS = { "x-act-as": "" };
+
+export function useApi<T>(path: string | null, options: { asStaff?: boolean } = {}) {
+  const asStaff = Boolean(options.asStaff);
   const { t } = useI18n();
   const [state, setState] = useState<ApiState<T>>({ path: null, data: null, error: null });
 
@@ -18,7 +21,7 @@ export function useApi<T>(path: string | null) {
       return;
     }
     let active = true;
-    api<T>(path).then(
+    api<T>(path, asStaff ? { headers: STAFF_HEADERS } : undefined).then(
       (data) => {
         if (active) setState({ path, data, error: null });
       },
@@ -29,19 +32,19 @@ export function useApi<T>(path: string | null) {
     return () => {
       active = false;
     };
-  }, [path]);
+  }, [path, asStaff]);
 
   const reload = useCallback(async () => {
     if (!path) {
       return;
     }
     try {
-      const data = await api<T>(path);
+      const data = await api<T>(path, asStaff ? { headers: STAFF_HEADERS } : undefined);
       setState({ path, data, error: null });
     } catch (error) {
       setState((current) => ({ path, data: current.path === path ? current.data : null, error }));
     }
-  }, [path]);
+  }, [path, asStaff]);
 
   const setData = useCallback((data: T) => setState({ path, data, error: null }), [path]);
   const current = state.path === path;

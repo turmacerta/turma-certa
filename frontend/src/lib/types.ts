@@ -48,6 +48,7 @@ export type ClassRow = {
   name: string;
   format: ClassFormat;
   is_active?: boolean;
+  max_capacity?: number;
   occupancy: Occupancy;
   sport?: Named | null;
   teacher?: { id: string; full_name: string } | null;
@@ -61,7 +62,7 @@ export type ClassDetail = ClassRow & {
   enrollments?: Array<{
     id: string;
     status: string;
-    student?: { id: string; full_name: string; class_level_id: string | null; photo_url?: string | null } | null;
+    student?: { id: string; full_name: string; class_level_id: string | null; photo_url?: string | null; subscriptions?: StudentPackage[] } | null;
   }>;
 };
 
@@ -97,6 +98,15 @@ export type Student = {
   photo_url?: string | null;
   profile_id?: string | null;
   created_at?: string;
+  subscriptions?: StudentPackage[];
+  enrollments?: Array<{ id: string; status: string; class_group: (Pick<ClassRow, "id" | "name" | "format" | "is_active" | "sport" | "class_level" | "class_schedules">) | null }>;
+};
+
+export type StudentPackage = {
+  id?: string;
+  status: string;
+  current_period_end?: string;
+  billing_plan?: { id: string; name: string; format?: ClassFormat; sport_id?: string | null; weekly_classes?: number | null } | null;
 };
 
 export type Guardian = {
@@ -137,6 +147,8 @@ export type BillingPlan = {
   cycle_days: number;
   lessons_per_cycle: number | null;
   is_active?: boolean;
+  sport_id?: string | null;
+  weekly_classes?: number | null;
 };
 
 export type Invoice = {

@@ -64,9 +64,11 @@ Monthly fee = base + price per member with a paid tag during the month. Students
 | `notifications` | Message composition and delivery |
 | `me` | Current user, cross-school schedule, network |
 | `admin` | Platform backoffice |
+| `leads` | Landing contact form: stores the lead and emails `LEADS_EMAIL` |
 
 ## Integration points
 
 - Notification delivery: `backend/src/infrastructure/notifications/channels.ts`. Email, WhatsApp and push are mocked and only log.
 - Invites: Supabase `auth.admin.inviteUserByEmail`. Configure custom SMTP for production.
 - Photos: Supabase Storage bucket `photos`, created by migration 011.
+- Landing leads: table `leads` (migration 012) and an email to `LEADS_EMAIL` through the email channel.

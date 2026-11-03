@@ -17,6 +17,14 @@ import { Button, Card } from "./ui";
 
 const ORG_KEY = "tc-org";
 
+function personaOf(membership: Membership): Persona {
+  const tag = membership.org_role?.tag;
+  if (tag) {
+    return tag === "manager" ? "manager" : tag;
+  }
+  return personaFromRole(membership.role);
+}
+
 function personaFromRole(role: MemberRole): Persona {
   if (role === "teacher") {
     return "teacher";
@@ -55,6 +63,7 @@ type OrgContextValue = {
   memberships: Membership[];
   switchOrg: (orgId: string) => void;
   isPlatformAdmin: boolean;
+  isStaff: boolean;
   refresh: () => Promise<void>;
 };
 
@@ -122,6 +131,9 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const setCustomerMode = useCallback((on: boolean) => {
     writeStorage(CUSTOMER_MODE_KEY, on ? "on" : "");
+    writeStorage(VIEW_AS_KEY, "");
+    writeStorage(VIEW_TEACHER_KEY, "");
+    if (on) writeStorage(SUPPORT_ORG_KEY, "");
     window.location.reload();
   }, []);
   const switchOrg = useCallback((orgId: string) => {
@@ -131,10 +143,11 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   const setViewAs = useCallback((persona: Persona) => writeStorage(VIEW_AS_KEY, persona), []);
   const setViewTeacher = useCallback((teacherId: string) => writeStorage(VIEW_TEACHER_KEY, teacherId), []);
 
+  const staffMode = isPlatformAdmin && !customerMode;
   const ownSupportOrg = memberships.some((item) => item.organization.id === supportOrgId);
   const supportMembership = useMemo<Membership | null>(
     () =>
-      isPlatformAdmin && supportOrganization && !ownSupportOrg && supportOrganization.id === supportOrgId
+      staffMode && supportOrganization && !ownSupportOrg && supportOrganization.id === supportOrgId
         ? {
             role: "owner",
             teacher_id: null,
@@ -148,19 +161,19 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
             },
           }
         : null,
-    [isPlatformAdmin, supportOrganization, ownSupportOrg, supportOrgId],
+    [staffMode, supportOrganization, ownSupportOrg, supportOrgId],
   );
   const current =
     supportMembership ??
     memberships.find((item) => item.organization.id === (ownSupportOrg ? supportOrgId : selectedOrg)) ??
     memberships[0];
   const plan = current?.organization.saas_plan ?? "school";
-  const realPersona = current ? personaFromRole(current.role) : "manager";
-  const canPreview = realPersona === "manager" || isPlatformAdmin;
+  const realPersona = current ? personaOf(current) : "manager";
+  const canPreview = staffMode;
   const personas = useMemo(() => (canPreview ? personasFor(plan) : [realPersona]), [canPreview, plan, realPersona]);
   const viewAs = personas.find((persona) => persona === storedViewAs) ?? null;
   const previewingTeacher = canPreview && viewAs === "teacher";
-  const teachers = useApi<Teacher[]>(current && previewingTeacher ? `/api/v1/organizations/${current.organization.id}/teachers` : null);
+  const teachers = useApi<Teacher[]>(current && previewingTeacher ? `/api/v1/organizations/${current.organization.id}/teachers` : null, { asStaff: true });
 
   const value = useMemo<OrgContextValue | null>(() => {
     if (!current) {
@@ -193,6 +206,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
       support: Boolean(supportMembership),
       exitSupport,
       customerMode: isPlatformAdmin && customerMode,
+      isStaff: staffMode,
       setCustomerMode,
       setViewAs,
       teacherId,
@@ -204,9 +218,9 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
       isPlatformAdmin,
       refresh: load,
     };
-  }, [current, supportMembership, exitSupport, customerMode, setCustomerMode, viewAs, setViewAs, profile, memberships, switchOrg, isPlatformAdmin, load, realPersona, canPreview, personas, previewingTeacher, teachers.data, storedViewTeacher, setViewTeacher]);
+  }, [current, supportMembership, exitSupport, customerMode, setCustomerMode, viewAs, setViewAs, profile, memberships, switchOrg, isPlatformAdmin, staffMode, load, realPersona, canPreview, personas, previewingTeacher, teachers.data, storedViewTeacher, setViewTeacher]);
 
-  const teacherHeaderPending = Boolean(value && customerMode && previewingTeacher && value.teacherId && storedViewTeacher !== value.teacherId);
+  const teacherHeaderPending = Boolean(value && staffMode && previewingTeacher && value.teacherId && storedViewTeacher !== value.teacherId);
 
   useEffect(() => {
     if (teacherHeaderPending && value?.teacherId) {
@@ -249,7 +263,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   }
 
   if (!value) {
-    return <Onboarding profile={profile} isPlatformAdmin={isPlatformAdmin} onCreated={load} />;
+    return <Onboarding profile={profile} isPlatformAdmin={staffMode} onCreated={load} />;
   }
 
   return <OrgContext.Provider value={value}>{children}</OrgContext.Provider>;

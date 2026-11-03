@@ -77,6 +77,33 @@ export class TeacherService {
 
     return this.get(orgId, teacherId);
   }
+  async update(orgId: string, teacherId: string, input: { fullName?: string; email?: string; phone?: string; bio?: string }) {
+    await this.get(orgId, teacherId);
+    return unwrap(
+      await getAdminClient()
+        .from("teachers")
+        .update({
+          ...(input.fullName !== undefined ? { full_name: input.fullName } : {}),
+          ...(input.email !== undefined ? { email: input.email } : {}),
+          ...(input.phone !== undefined ? { phone: input.phone } : {}),
+          ...(input.bio !== undefined ? { bio: input.bio || null } : {}),
+        })
+        .eq("organization_id", orgId)
+        .eq("id", teacherId)
+        .select("*")
+        .single(),
+    );
+  }
+
+  async remove(orgId: string, teacherId: string) {
+    const teacher = (await this.get(orgId, teacherId)) as { profile_id?: string | null };
+    if (teacher.profile_id) {
+      unwrap(await getAdminClient().from("organization_members").delete().eq("organization_id", orgId).eq("profile_id", teacher.profile_id).eq("role", "teacher"));
+    }
+    unwrap(await getAdminClient().from("teachers").delete().eq("organization_id", orgId).eq("id", teacherId));
+    return { id: teacherId };
+  }
+
 }
 
 export const teacherService = new TeacherService();

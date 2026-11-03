@@ -12,6 +12,7 @@ import {
   type ReactNode,
   type TextareaHTMLAttributes,
 } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown, CircleAlert, Eye, EyeOff, Inbox, Loader2, Minus, Plus, RefreshCw } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 
@@ -273,7 +274,9 @@ export function Select({
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const [place, setPlace] = useState<{ left: number; width: number; top?: number; bottom?: number } | null>(null);
   const selected = options.find((option) => option.value === value);
   const filtered =
     searchable && query ? options.filter((option) => option.label.toLowerCase().includes(query.toLowerCase())) : options;
@@ -289,12 +292,27 @@ export function Select({
       return;
     }
     const onPointer = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (!ref.current?.contains(target) && !dropRef.current?.contains(target)) {
         setOpen(false);
       }
     };
+    const measure = () => {
+      const rect = ref.current?.getBoundingClientRect();
+      if (!rect) return;
+      const below = window.innerHeight - rect.bottom;
+      const up = below < 300 && rect.top > below;
+      setPlace(up ? { left: rect.left, width: rect.width, bottom: window.innerHeight - rect.top + 8 } : { left: rect.left, width: rect.width, top: rect.bottom + 8 });
+    };
+    measure();
     document.addEventListener("mousedown", onPointer);
-    return () => document.removeEventListener("mousedown", onPointer);
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
   }, [open]);
 
   useEffect(() => {
@@ -356,8 +374,13 @@ export function Select({
           <span className={cn("truncate", !selected && "text-muted/70")}>{selected?.label ?? placeholder ?? t.common.select}</span>
           <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted transition", open && "rotate-180")} />
         </button>
-        {open ? (
-          <div className="animate-scale-in absolute left-0 right-0 top-full z-50 mt-2 min-w-48 overflow-hidden rounded-2xl border border-line bg-surface shadow-soft">
+        {open && place ? createPortal(
+          <div
+            ref={dropRef}
+            onKeyDown={onKeyDown}
+            style={{ position: "fixed", left: place.left, width: Math.max(place.width, 192), top: place.top, bottom: place.bottom }}
+            className="animate-scale-in z-[200] overflow-hidden rounded-2xl border border-line bg-surface shadow-soft"
+          >
             {searchable ? (
               <div className="border-b border-line p-2">
                 <input
@@ -407,7 +430,8 @@ export function Select({
                 })
               )}
             </ul>
-          </div>
+          </div>,
+          document.body,
         ) : null}
       </div>
     </FieldShell>

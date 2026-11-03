@@ -6,7 +6,6 @@ import {
   classGroupSchema,
   classGroupUpdateSchema,
   enrollmentSchema,
-  mergeClassSchema,
   vacancyAlertSchema,
 } from "./class.schema";
 import { classService } from "./class.service";
@@ -103,11 +102,3 @@ classRouter.post(
   ),
 );
 
-classRouter.post(
-  "/:classId/merge",
-  manage,
-  asyncHandler(async (req, res) => {
-    const input = parseBody(mergeClassSchema, req.body);
-    return ok(res, await classService.merge(req.params.orgId, req.params.classId, input));
-  }),
-);

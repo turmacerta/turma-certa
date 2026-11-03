@@ -6,6 +6,8 @@ export const billingPlanSchema = z.object({
   lessonsPerCycle: z.number().int().min(1).max(40).optional(),
   cycleDays: z.number().int().min(7).max(365).default(30),
   priceCents: z.number().int().min(0),
+  sportId: z.string().uuid().optional(),
+  weeklyClasses: z.number().int().min(1).max(7).optional(),
 });
 
 export const billingPlanUpdateSchema = z.object({
@@ -14,6 +16,8 @@ export const billingPlanUpdateSchema = z.object({
   cycleDays: z.number().int().min(7).max(365).optional(),
   priceCents: z.number().int().min(0).optional(),
   isActive: z.boolean().optional(),
+  sportId: z.string().uuid().nullable().optional(),
+  weeklyClasses: z.number().int().min(1).max(7).nullable().optional(),
 });
 
 export const reminderSchema = z.object({
@@ -24,4 +28,5 @@ export const subscriptionSchema = z.object({
   studentId: z.string().uuid(),
   billingPlanId: z.string().uuid(),
   autoRenew: z.boolean().default(true),
+  classIds: z.array(z.string().uuid()).max(7).default([]),
 });

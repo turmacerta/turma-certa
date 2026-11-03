@@ -187,7 +187,7 @@ export function LogoBall({ sport, x = BALL_CENTER.x, y = BALL_CENTER.y, scale = 
 
 export function LogoMark({ className = "h-9 w-9", sport = "tennis", animated }: { className?: string; sport?: LogoSport; animated?: boolean }) {
   return (
-    <svg viewBox={LOGO_VIEWBOX} className={className} aria-hidden>
+    <svg viewBox={LOGO_VIEWBOX} className={className} overflow="visible" aria-hidden>
       <g fill="none" stroke={LOGO_PURPLE} strokeWidth="97">
         <path d={LOGO_OUTER_ARC} />
         <path d={LOGO_INNER_ARC} />

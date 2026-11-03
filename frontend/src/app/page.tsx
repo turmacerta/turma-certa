@@ -2,20 +2,19 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, Calculator, Check, Minus, Plus } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import { BrandMark } from "@/components/brand";
-import { LanguageSwitch } from "@/components/language-switch";
-import { Dialog } from "@/components/overlay";
 import { AnimatedLogo, LiveClassesDemo, Reveal } from "@/components/landing-motion";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { Button, Segmented } from "@/components/ui";
+import { Preferences } from "@/components/preferences";
+import { Button, cn, Field, InlineAlert, Segmented, Stepper, TextArea } from "@/components/ui";
+import { api } from "@/lib/api";
+import { isValidEmail } from "@/lib/auth";
+import { errorMessage } from "@/lib/errors";
+import { maskPhone } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { ROUTES } from "@/lib/navigation";
-import { PRICING } from "@/lib/plans";
 import { createBrowserSupabase } from "@/lib/supabase/client";
-import type { MemberTag, SaasPlan } from "@/lib/types";
-
-const TEAM_TAGS: Array<Exclude<MemberTag, "student">> = ["manager", "teacher"];
+import type { SaasPlan } from "@/lib/types";
 
 function useSignedIn() {
   const [signedIn, setSignedIn] = useState(false);
@@ -41,11 +40,10 @@ export default function LandingPage() {
             <a href="#how-it-works" className="hidden rounded-full px-4 py-2 text-muted hover:text-ink md:block">
               {copy.howItWorks}
             </a>
-            <a href="#pricing" className="hidden rounded-full px-4 py-2 text-muted hover:text-ink md:block">
-              {copy.plans}
+            <a href="#contact" className="hidden rounded-full px-4 py-2 text-muted hover:text-ink md:block">
+              {copy.contactNav}
             </a>
-            <span className="hidden sm:contents"><LanguageSwitch /></span>
-            <span className="hidden sm:contents"><ThemeToggle /></span>
+            <Preferences />
             {signedIn ? (
               <Link href={ROUTES.home} className="rounded-full bg-primary px-4 py-2 text-on-primary transition hover:bg-primary-hover">
                 {copy.openApp}
@@ -139,13 +137,21 @@ export default function LandingPage() {
           </dl>
         </section>
 
-        <section id="pricing" className="mx-auto max-w-6xl px-5 py-10">
+        <section id="contact" className="mx-auto grid max-w-6xl gap-10 px-5 py-10 lg:grid-cols-[1fr_1.1fr] lg:items-start">
           <Reveal>
-            <h2 className="display text-3xl font-semibold md:text-4xl">{copy.pricingTitle}</h2>
-            <p className="mt-3 max-w-2xl text-muted">{copy.pricingText}</p>
+            <h2 className="display text-3xl font-semibold md:text-4xl">{copy.contactTitle}</h2>
+            <p className="mt-3 max-w-md text-muted">{copy.contactText}</p>
+            <ul className="mt-6 grid gap-3">
+              {copy.contactPoints.map((item) => (
+                <li key={item} className="flex items-start gap-2">
+                  <Check className="mt-1 h-4 w-4 shrink-0 text-primary" />
+                  {item}
+                </li>
+              ))}
+            </ul>
           </Reveal>
           <Reveal delay={100}>
-            <PricingCard />
+            <ContactForm />
           </Reveal>
         </section>
 
@@ -166,7 +172,6 @@ export default function LandingPage() {
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-8 text-sm text-muted">
           <BrandMark />
           <div className="flex items-center gap-3">
-            <LanguageSwitch className="sm:hidden" />
             <p>
               {copy.footer} © {new Date().getFullYear()} Turma Certa
             </p>
@@ -177,126 +182,95 @@ export default function LandingPage() {
   );
 }
 
-function PricingCard() {
-  const { t, format } = useI18n();
-  const copy = t.landing;
-  const [open, setOpen] = useState(false);
-  const [counts, setCounts] = useState<Record<(typeof TEAM_TAGS)[number], number>>({ manager: 1, teacher: 3 });
+function ContactForm() {
+  const { t } = useI18n();
+  const copy = t.landing.contactForm;
+  const [form, setForm] = useState({ name: "", email: "", phone: "", school: "", message: "" });
+  const [size, setSize] = useState({ students: 40, managers: 1, teachers: 3 });
   const [mode, setMode] = useState<SaasPlan>("school");
-  const total = mode === "autonomous" ? PRICING.baseCents.autonomous : PRICING.baseCents.school + TEAM_TAGS.reduce((sum, tag) => sum + counts[tag] * PRICING.tagCents[tag], 0);
+  const [withMessage, setWithMessage] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const set = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm({ ...form, [key]: event.target.value });
+  const valid = form.name.trim().length >= 2 && isValidEmail(form.email.trim()) && form.phone.replace(/\D/g, "").length >= 10 && form.school.trim().length >= 2;
+  const school = mode === "school";
 
-  function change(tag: (typeof TEAM_TAGS)[number], delta: number) {
-    setCounts((current) => ({ ...current, [tag]: Math.min(99, Math.max(0, current[tag] + delta)) }));
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!valid || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      await api("/api/v1/leads", {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone.trim(),
+          school: form.school.trim(),
+          mode,
+          students: size.students,
+          managers: school ? size.managers : 0,
+          teachers: school ? size.teachers : 1,
+          message: form.message.trim() || undefined,
+        }),
+      });
+      setSent(true);
+    } catch (err) {
+      setError(errorMessage(err, t));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (sent) {
+    return (
+      <div className="grid justify-items-center gap-3 rounded-[2rem] border border-line bg-surface p-10 text-center shadow-soft">
+        <span className="grid h-12 w-12 place-items-center rounded-full bg-success-soft text-success">
+          <Check className="h-6 w-6" />
+        </span>
+        <p className="display text-xl font-semibold">{copy.sentTitle}</p>
+        <p className="max-w-sm text-muted">{copy.sentText}</p>
+      </div>
+    );
   }
 
   return (
-    <>
-      <div className="mt-8 grid overflow-hidden rounded-[2rem] border border-line bg-surface shadow-soft md:grid-cols-2">
-        <div className="flex flex-col justify-center gap-6 p-8">
-          <div>
-            <p className="font-semibold">{copy.pricingBase}</p>
-            <p className="mt-2">
-              <span className="text-muted">R$ </span>
-              <span className="display tabular text-5xl font-semibold">{PRICING.baseCents.school / 100}</span>
-              <span className="text-muted">{copy.perMonth}</span>
-            </p>
-            <p className="mt-2 text-sm text-muted">{copy.autonomousPrice(format.currency(PRICING.baseCents.autonomous))}</p>
-          </div>
-          <ul className="grid gap-2">
-            {copy.pricingIncluded.map((item) => (
-              <li key={item} className="flex items-center gap-2">
-                <Check className="h-4 w-4 shrink-0 text-primary" />
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="grid content-start gap-5 border-t border-line bg-surface-2 p-8 md:border-l md:border-t-0">
-          <p className="font-semibold">{copy.teamTitle}</p>
-          <dl className="grid gap-4">
-            {TEAM_TAGS.map((tag) => (
-              <div key={tag} className="grid gap-0.5 border-b border-line pb-4 last:border-0 last:pb-0">
-                <div className="flex items-baseline justify-between gap-4">
-                  <dt className="font-semibold">{t.tags[tag]}</dt>
-                  <dd className="tabular font-semibold">
-                    {format.currency(PRICING.tagCents[tag])}
-                    <span className="font-normal text-muted">{copy.perMonth}</span>
-                  </dd>
-                </div>
-                <p className="text-sm text-muted">{copy.tagHints[tag]}</p>
-              </div>
-            ))}
-          </dl>
-          <Button variant="outline" className="w-fit" onClick={() => setOpen(true)}>
-            <Calculator className="h-4 w-4" />
-            {copy.simulate}
-          </Button>
-        </div>
+    <form onSubmit={submit} className="grid gap-5 rounded-[2rem] border border-line bg-surface p-6 shadow-soft md:p-8">
+      <Segmented
+        label={copy.mode}
+        value={mode}
+        onChange={setMode}
+        options={[
+          { value: "school", label: copy.modeSchool },
+          { value: "autonomous", label: copy.modeAutonomous },
+        ]}
+      />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label={copy.name} value={form.name} onChange={set("name")} autoComplete="name" />
+        <Field label={school ? copy.school : copy.business} value={form.school} onChange={set("school")} autoComplete="organization" />
+        <Field label={copy.phone} inputMode="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: maskPhone(event.target.value) })} placeholder="(31) 99999-0000" autoComplete="tel" />
+        <Field label={copy.email} type="email" inputMode="email" value={form.email} onChange={set("email")} autoComplete="email" />
       </div>
-      <Dialog
-        open={open}
-        onClose={() => setOpen(false)}
-        title={copy.simulatorTitle}
-        description={copy.simulatorHint}
-        footer={
-          <div className="flex w-full items-end justify-between gap-4">
-            <div>
-              <p className="font-semibold">{copy.simulatorTotal}</p>
-              <p className="text-xs text-muted">{copy.ownerIncluded}</p>
-            </div>
-            <p className="shrink-0">
-              <span className="display tabular text-3xl font-semibold" aria-live="polite">
-                {format.currency(total)}
-              </span>
-              <span className="text-muted">{copy.perMonth}</span>
-            </p>
-          </div>
-        }
-      >
-        <Segmented
-          label={copy.simulatorMode}
-          value={mode}
-          onChange={setMode}
-          options={[
-            { value: "school", label: copy.modeSchool },
-            { value: "autonomous", label: copy.modeAutonomous },
-          ]}
-        />
-        {mode === "autonomous" ? (
-          <p className="text-sm text-muted">{copy.autonomousHint}</p>
-        ) : (
-        <ul className="grid gap-4">
-          {TEAM_TAGS.map((tag) => (
-            <li key={tag} className="flex items-center justify-between gap-4 border-b border-line pb-4 last:border-0 last:pb-0">
-              <div className="min-w-0">
-                <p className="font-semibold">{t.tags[tag]}</p>
-                <p className="text-sm text-muted">{format.currency(counts[tag] * PRICING.tagCents[tag])}{copy.perMonth}</p>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  aria-label={copy.less(t.tags[tag])}
-                  disabled={counts[tag] === 0}
-                  onClick={() => change(tag, -1)}
-                  className="grid h-9 w-9 place-items-center rounded-full border border-line bg-surface transition hover:border-primary/50 disabled:opacity-40"
-                >
-                  <Minus className="h-4 w-4" />
-                </button>
-                <span className="tabular w-8 text-center font-semibold">{counts[tag]}</span>
-                <button
-                  type="button"
-                  aria-label={copy.more(t.tags[tag])}
-                  onClick={() => change(tag, 1)}
-                  className="grid h-9 w-9 place-items-center rounded-full border border-line bg-surface transition hover:border-primary/50"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-        )}
-      </Dialog>
-    </>
+      <div className={cn("grid gap-4", school ? "sm:grid-cols-3" : "sm:grid-cols-1")}>
+        <Stepper label={copy.students} value={size.students} onChange={(students) => setSize({ ...size, students })} min={0} max={5000} step={10} />
+        {school ? <Stepper label={copy.managers} value={size.managers} onChange={(managers) => setSize({ ...size, managers })} min={0} max={50} /> : null}
+        {school ? <Stepper label={copy.teachers} value={size.teachers} onChange={(teachers) => setSize({ ...size, teachers })} min={0} max={200} /> : null}
+      </div>
+      {withMessage ? (
+        <TextArea label={copy.message} optional value={form.message} onChange={set("message")} placeholder={copy.messagePlaceholder} autoFocus />
+      ) : (
+        <button type="button" onClick={() => setWithMessage(true)} className="justify-self-start text-sm font-semibold text-primary hover:underline">
+          {copy.addMessage}
+        </button>
+      )}
+      {error ? <InlineAlert tone="danger" title={error} /> : null}
+      <Button type="submit" size="lg" disabled={!valid} loading={sending}>
+        {copy.submit}
+        <ArrowRight className="h-4 w-4" />
+      </Button>
+      <p className="text-xs text-muted">{copy.privacy}</p>
+    </form>
   );
 }

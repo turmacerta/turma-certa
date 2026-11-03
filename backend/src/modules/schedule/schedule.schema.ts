@@ -9,8 +9,3 @@ export const cancelSessionSchema = z.object({
   reason: z.string().trim().max(200).optional(),
 });
 
-export const attendanceSchema = z.object({
-  studentId: z.string().uuid(),
-  status: z.enum(["present", "absent", "makeup", "cancelled"]),
-  makeupSessionId: z.string().uuid().optional(),
-});

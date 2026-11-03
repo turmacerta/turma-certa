@@ -14,6 +14,7 @@ import { studentRouter } from "./modules/students/student.routes";
 import { teacherRouter } from "./modules/teachers/teacher.routes";
 import { teamRouter } from "./modules/team/team.routes";
 import { portalRouter } from "./modules/portal/portal.routes";
+import { leadRouter } from "./modules/leads/lead.routes";
 
 export function createApp() {
   const app = express();
@@ -28,6 +29,7 @@ export function createApp() {
 
   app.use("/health", healthRouter);
   app.use("/api/v1/health", healthRouter);
+  app.use("/api/v1/leads", leadRouter);
   app.use("/api/v1/me/students", portalRouter);
   app.use("/api/v1/me", meRouter);
   app.use("/api/v1/admin", adminRouter);

@@ -9,13 +9,11 @@ import { errorMessage } from "@/lib/errors";
 import { weekdayShort } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { ROUTES } from "@/lib/navigation";
-import { PRICING } from "@/lib/plans";
 import { SPORTS, SportIcon } from "@/lib/sports";
 import { createBrowserSupabase } from "@/lib/supabase/client";
 import type { Profile, SaasPlan } from "@/lib/types";
 import { BrandMark, LogoMark } from "./brand";
-import { LanguageSwitch } from "./language-switch";
-import { ThemeToggle } from "./theme-toggle";
+import { Preferences } from "./preferences";
 import { Button, cn, Field, InlineAlert, Stepper, TimeSelect } from "./ui";
 
 const TOTAL_STEPS = 5;
@@ -166,10 +164,7 @@ export function Onboarding({
       <header className="mx-auto flex max-w-3xl items-center justify-between gap-2">
         <BrandMark />
         <div className="flex items-center gap-2">
-          <span className="hidden sm:contents">
-            <LanguageSwitch />
-          </span>
-          <ThemeToggle />
+          <Preferences />
           <Button variant="ghost" size="sm" onClick={signOut}>
             <LogOut className="h-4 w-4" />
             <span className="hidden sm:inline">{t.common.signOut}</span>
@@ -213,10 +208,6 @@ export function Onboarding({
                 <div className="flex justify-between gap-4">
                   <dt className="opacity-80">{ob.moneyToday(studentsCount)}</dt>
                   <dd className="tabular font-semibold">{format.currency(studentsCount * feeCents)}</dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <dt className="opacity-80">{ob.moneyCost}</dt>
-                  <dd className="tabular font-semibold">{format.currency(PRICING.baseCents[plan])}</dd>
                 </div>
               </dl>
             </div>

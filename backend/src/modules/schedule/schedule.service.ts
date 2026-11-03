@@ -3,7 +3,7 @@ import { Errors } from "../../shared/errors";
 import { notificationService } from "../notifications/notification.service";
 import { expiresIn, lessonRules } from "../../shared/rules";
 import type { z } from "zod";
-import type { attendanceSchema, cancelSessionSchema, generateSessionsSchema } from "./schedule.schema";
+import type { cancelSessionSchema, generateSessionsSchema } from "./schedule.schema";
 
 const SESSION_FIELDS = `
   *,
@@ -233,40 +233,6 @@ export class ScheduleService {
     );
   }
 
-  async markAttendance(
-    orgId: string,
-    sessionId: string,
-    input: z.infer<typeof attendanceSchema>,
-  ) {
-    const session = unwrap(
-      await getAdminClient()
-        .from("class_sessions")
-        .select("id, class_group:class_groups!inner(organization_id)")
-        .eq("id", sessionId)
-        .eq("class_group.organization_id", orgId)
-        .maybeSingle(),
-    );
-
-    if (!session) {
-      throw Errors.notFound("Session");
-    }
-
-    return unwrap(
-      await getAdminClient()
-        .from("attendance")
-        .upsert(
-          {
-            class_session_id: sessionId,
-            student_id: input.studentId,
-            status: input.status,
-            makeup_session_id: input.makeupSessionId ?? null,
-          },
-          { onConflict: "class_session_id,student_id" },
-        )
-        .select("*")
-        .single(),
-    );
-  }
 }
 
 export const scheduleService = new ScheduleService();

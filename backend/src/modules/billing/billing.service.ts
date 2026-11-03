@@ -1,5 +1,6 @@
 import { getAdminClient, unwrap } from "../../infrastructure/supabase/client";
 import { Errors } from "../../shared/errors";
+import { classService } from "../classes/class.service";
 import type { z } from "zod";
 import type { billingPlanSchema, billingPlanUpdateSchema, subscriptionSchema } from "./billing.schema";
 
@@ -107,6 +108,8 @@ export class BillingService {
       ...(input.cycleDays !== undefined ? { cycle_days: input.cycleDays } : {}),
       ...(input.priceCents !== undefined ? { price_cents: input.priceCents } : {}),
       ...(input.isActive !== undefined ? { is_active: input.isActive } : {}),
+      ...(input.sportId !== undefined ? { sport_id: input.sportId } : {}),
+      ...(input.weeklyClasses !== undefined ? { weekly_classes: input.weeklyClasses } : {}),
     };
     const plan = unwrap(
       await getAdminClient().from("billing_plans").update(changes).eq("organization_id", orgId).eq("id", planId).select("*").maybeSingle(),
@@ -128,6 +131,8 @@ export class BillingService {
           lessons_per_cycle: input.lessonsPerCycle ?? null,
           cycle_days: input.cycleDays,
           price_cents: input.priceCents,
+          sport_id: input.sportId ?? null,
+          weekly_classes: input.weeklyClasses ?? null,
         })
         .select("*")
         .single(),
@@ -163,6 +168,20 @@ export class BillingService {
 
     if (!student) {
       throw Errors.notFound("Student");
+    }
+
+    const classIds = [...new Set(input.classIds)];
+    if (plan.weekly_classes && classIds.length !== plan.weekly_classes) {
+      throw Errors.conflict("Pick one class for each weekly lesson.", "PACKAGE_CLASSES");
+    }
+    if (classIds.length) {
+      const classes = unwrap(
+        await getAdminClient().from("class_groups").select("id, sport_id, format").eq("organization_id", orgId).eq("is_active", true).in("id", classIds),
+      ) as Array<{ id: string; sport_id: string; format: string }>;
+      const fits = classes.length === classIds.length && classes.every((item) => (!plan.sport_id || item.sport_id === plan.sport_id) && item.format === plan.format);
+      if (!fits) {
+        throw Errors.conflict("The classes do not match the package.", "PACKAGE_CLASSES");
+      }
     }
 
     const start = new Date().toISOString().slice(0, 10);
@@ -205,6 +224,11 @@ export class BillingService {
           expires_at: end,
         }),
       );
+    }
+
+    for (const classId of classIds) {
+      const occupancy = unwrap(await getAdminClient().from("class_group_occupancy").select("vacancies").eq("class_group_id", classId).maybeSingle());
+      await classService.enroll(orgId, classId, { studentId: input.studentId, status: occupancy && (occupancy.vacancies as number) <= 0 ? "waitlist" : "active" });
     }
 
     return subscription;

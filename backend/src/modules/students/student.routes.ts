@@ -91,3 +91,9 @@ studentRouter.post(
     );
   }),
 );
+
+studentRouter.delete(
+  "/:studentId",
+  requirePermission("students.manage"),
+  asyncHandler(async (req, res) => ok(res, await studentService.remove(req.params.orgId, req.params.studentId))),
+);

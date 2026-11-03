@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Minus, Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Minus, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { isValidEmail } from "@/lib/auth";
 import { errorMessage } from "@/lib/errors";
+import { maskPhone } from "@/lib/format";
+import { classOption, classTitle, scheduleSummary } from "@/lib/classes";
 import { useI18n } from "@/lib/i18n";
-import type { Credit, Named, Student } from "@/lib/types";
+import { ROUTES } from "@/lib/navigation";
+import { activePackage } from "@/lib/plans";
+import type { ClassRow, Credit, Named, Student } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { Dialog, Drawer, useConfirm, useToast } from "./overlay";
 import { PhotoInput } from "./photo-input";
@@ -46,13 +51,6 @@ const EMPTY: StudentDraft = {
 const CREDIT_DAYS = 30;
 
 type AccessResult = "invited" | "linked" | "failed";
-
-function maskPhone(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 11);
-  if (digits.length <= 2) return digits;
-  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
-  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
-}
 
 function maskDate(value: string) {
   const digits = value.replace(/\D/g, "").slice(0, 8);
@@ -387,6 +385,20 @@ function StudentDetailDrawerBody({ orgId, student, levels, onClose, onChanged }:
     }
   }
 
+  async function remove() {
+    if (!student) return;
+    const ok = await confirm({ title: detail.deleteTitle(student.full_name), description: detail.deleteText, confirmLabel: detail.delete, tone: "danger" });
+    if (!ok) return;
+    try {
+      await api(`${base}/${student.id}`, { method: "DELETE" });
+      toast({ message: detail.deleted(student.full_name) });
+      onClose();
+      onChanged();
+    } catch (err) {
+      toast({ message: errorMessage(err, t), tone: "error" });
+    }
+  }
+
   function reasonText(credit: Credit) {
     if (credit.reason && detail.reasons[credit.reason]) return detail.reasons[credit.reason];
     if (credit.reason) return credit.reason;
@@ -415,6 +427,10 @@ function StudentDetailDrawerBody({ orgId, student, levels, onClose, onChanged }:
       footer={
         tab === "profile" ? (
           <>
+            <Button variant="quiet-danger" onClick={() => void remove()} className="mr-auto">
+              <Trash2 className="h-4 w-4" />
+              {detail.delete}
+            </Button>
             <Button variant="ghost" disabled={!dirty} onClick={() => student && setDraft(draftFrom(student))}>
               {t.common.discard}
             </Button>
@@ -459,6 +475,7 @@ function StudentDetailDrawerBody({ orgId, student, levels, onClose, onChanged }:
             { value: "credits", label: detail.credits },
           ]}
         />
+        {tab === "profile" && student ? <StudentLinks orgId={orgId} studentId={student.id} onChanged={onChanged} /> : null}
         {tab === "profile" ? <StudentFields draft={draft} setDraft={setDraft} levels={levels} /> : null}
         {tab === "credits" ? (
           <div className="grid gap-5">
@@ -503,5 +520,103 @@ function StudentDetailDrawerBody({ orgId, student, levels, onClose, onChanged }:
         ) : null}
       </div>
     </Drawer>
+  );
+}
+
+function StudentLinks({ orgId, studentId, onChanged }: { orgId: string; studentId: string; onChanged: () => void }) {
+  const { t, locale, format } = useI18n();
+  const toast = useToast();
+  const router = useRouter();
+  const { can } = useOrg();
+  const detail = t.students.detail;
+  const base = `/api/v1/organizations/${orgId}`;
+  const overview = useApi<Student>(`${base}/students/${studentId}`);
+  const manageClasses = can("classes.manage");
+  const classes = useApi<ClassRow[]>(manageClasses ? `${base}/classes` : null);
+  const [classId, setClassId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const enrollments = (overview.data?.enrollments ?? []).filter((item) => item.class_group && item.class_group.is_active !== false);
+  const active = enrollments.filter((item) => item.status === "active" || item.status === "waitlist");
+  const inIds = new Set(active.map((item) => item.class_group?.id));
+  const pack = activePackage(overview.data?.subscriptions);
+  const choices = (classes.data ?? []).filter((item) => !inIds.has(item.id));
+  const picked = choices.find((item) => item.id === classId);
+
+  async function enroll() {
+    if (!picked) return;
+    const full = picked.occupancy.enrolled_count >= picked.occupancy.max_capacity;
+    setBusy(true);
+    try {
+      await api(`${base}/classes/${picked.id}/enrollments`, { method: "POST", body: JSON.stringify({ studentId, status: full ? "waitlist" : "active" }) });
+      toast({ message: full ? t.classes.detail.waitlisted : t.classes.detail.enrolled });
+      setClassId("");
+      await Promise.all([overview.reload(), classes.reload()]);
+      onChanged();
+    } catch (err) {
+      toast({ message: errorMessage(err, t), tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (overview.loading) return <LoadingList rows={1} />;
+  if (overview.error) return <ErrorState message={overview.error} onRetry={() => void overview.reload()} />;
+
+  return (
+    <section className="grid gap-4 rounded-3xl border border-line bg-surface-2 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs text-muted">{detail.packageLabel}</p>
+          {pack ? (
+            <p className="truncate font-semibold">
+              {pack.billing_plan?.name}
+              {pack.current_period_end ? <span className="font-normal text-muted"> · {detail.packageUntil(format.date(pack.current_period_end))}</span> : null}
+            </p>
+          ) : (
+            <p className="font-semibold text-warning">{detail.noPackage}</p>
+          )}
+        </div>
+        {!pack && can("billing.manage") ? (
+          <Button size="sm" variant="outline" onClick={() => router.push(`${ROUTES.billing}?new=subscription&student=${studentId}`)}>
+            {detail.sellPackage}
+          </Button>
+        ) : null}
+      </div>
+      <div className="grid gap-2 border-t border-line pt-3">
+        <p className="text-xs text-muted">{detail.classesLabel}</p>
+        {active.length === 0 ? (
+          <p className="text-sm text-muted">{detail.noClasses}</p>
+        ) : (
+          <ul className="grid gap-1.5">
+            {active.map((item) => (
+              <li key={item.id} className="flex items-center justify-between gap-3 text-sm">
+                <span className="min-w-0 truncate font-semibold">{classTitle(item.class_group!, t)}</span>
+                <span className="shrink-0 text-xs text-muted">
+                  {item.status === "waitlist" ? t.classes.detail.waitlist : scheduleSummary(item.class_group!.class_schedules, locale, t.common.noSchedule)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {manageClasses && pack && choices.length ? (
+          <div className="flex items-end gap-2 pt-1">
+            <div className="min-w-0 flex-1">
+              <Select
+                label={detail.enrollIn}
+                hideLabel
+                searchable
+                placeholder={detail.enrollIn}
+                value={classId}
+                onChange={setClassId}
+                options={choices.map((item) => classOption(item, t, locale))}
+              />
+            </div>
+            <Button onClick={() => void enroll()} disabled={!picked} loading={busy}>
+              {t.classes.detail.enroll}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
