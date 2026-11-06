@@ -8,4 +8,16 @@ export const createOrganizationSchema = z.object({
   email: z.string().email().optional(),
 });
 
-export const updateOrganizationSchema = createOrganizationSchema.partial();
+export const lessonRulesSchema = z.object({
+  noticeHours: z.number().int().min(0).max(72),
+  creditDays: z.number().int().min(7).max(120),
+  maxCredits: z.number().int().min(1).max(20),
+  sameLevel: z.boolean(),
+  anyUnit: z.boolean(),
+  rainCredit: z.boolean(),
+});
+
+export const updateOrganizationSchema = createOrganizationSchema.partial().extend({
+  lessonRules: lessonRulesSchema.optional(),
+  logoSport: z.enum(["tennis", "soccer", "basketball", "volleyball", "racket", "boxing", "belt", "dumbbell", "target", "trophy", "star"]).optional(),
+});

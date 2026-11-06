@@ -20,6 +20,11 @@ export const classGroupSchema = z.object({
     .default([]),
 });
 
+export const classGroupUpdateSchema = classGroupSchema
+  .omit({ format: true })
+  .partial()
+  .extend({ teacherId: z.string().uuid().nullable().optional(), classLevelId: z.string().uuid().nullable().optional(), spaceId: z.string().uuid().nullable().optional() });
+
 export const enrollmentSchema = z.object({
   studentId: z.string().uuid(),
   status: z.enum(["active", "paused", "cancelled", "waitlist"]).default("active"),

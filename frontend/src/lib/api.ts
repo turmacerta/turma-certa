@@ -1,4 +1,6 @@
 import { apiUrl } from "./env";
+import { ROUTES } from "./navigation";
+import { actingHeaders } from "./staff";
 import { createBrowserSupabase } from "./supabase/client";
 
 type ApiResult<T> = {
@@ -18,13 +20,14 @@ export class RequestError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    readonly details?: unknown,
   ) {
     super(message);
     this.name = "RequestError";
   }
 }
 
-async function authHeader() {
+async function authHeader(): Promise<Record<string, string>> {
   const supabase = createBrowserSupabase();
   if (!supabase) {
     return {};
@@ -41,25 +44,41 @@ async function authHeader() {
   return { Authorization: `Bearer ${session.access_token}` };
 }
 
-export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(await authHeader()),
-      ...init?.headers,
-    },
-  });
+async function handleSessionReplaced() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (window.location.pathname.startsWith(ROUTES.login)) {
+    return;
+  }
+  await createBrowserSupabase()?.auth.signOut({ scope: "local" });
+  window.location.assign(`${ROUTES.login}?notice=session-replaced`);
+}
 
-  const payload = (await response.json()) as ApiResult<T> | ApiError;
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${apiUrl}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeader()),
+        ...actingHeaders(),
+        ...(init?.headers as Record<string, string> | undefined),
+      },
+    });
+  } catch {
+    throw new RequestError("Network error", 0, "NETWORK_ERROR");
+  }
+
+  const payload = (await response.json().catch(() => ({}))) as ApiResult<T> | ApiError;
 
   if (!response.ok || "error" in payload) {
     const error = "error" in payload ? payload.error : undefined;
-    throw new RequestError(
-      error?.message ?? "Falha ao falar com a API.",
-      response.status,
-      error?.code,
-    );
+    if (response.status === 401 && error?.code === "SESSION_REPLACED") {
+      await handleSessionReplaced();
+    }
+    throw new RequestError(error?.message ?? "Request failed", response.status, error?.code, error?.details);
   }
 
   return payload.data;

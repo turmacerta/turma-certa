@@ -1,21 +1,32 @@
-import type { Metadata } from "next";
-import { Fraunces, Manrope } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Inter, Sora } from "next/font/google";
+import { Providers } from "@/components/providers";
+import { THEME_BOOT_SCRIPT } from "@/lib/theme-script";
 import "./globals.css";
 
-const manrope = Manrope({
-  variable: "--font-manrope",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
 });
 
-const fraunces = Fraunces({
-  variable: "--font-fraunces",
+const sora = Sora({
+  variable: "--font-sora",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
   title: "Turma Certa",
   description:
     "Gestão de aulas de esporte para autônomos e escolas: turmas, vagas, créditos, agenda e renovação.",
+  icons: { icon: "/logo/turma-certa-mark.svg" },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f6f6f9" },
+    { media: "(prefers-color-scheme: dark)", color: "#17142a" },
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -23,9 +34,15 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="pt-BR"
       data-scroll-behavior="smooth"
-      className={`${manrope.variable} ${fraunces.variable} h-full antialiased`}
+      suppressHydrationWarning
+      className={`${inter.variable} ${sora.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-paper text-ink">{children}</body>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
+      <body className="min-h-full text-ink">
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

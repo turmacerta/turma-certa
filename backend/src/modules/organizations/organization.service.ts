@@ -1,5 +1,6 @@
 import { getAdminClient, unwrap } from "../../infrastructure/supabase/client";
 import { Errors } from "../../shared/errors";
+import { assertFitsPlan } from "../../shared/plans";
 import { slugify } from "../../shared/slug";
 import type { z } from "zod";
 import type {
@@ -30,7 +31,7 @@ export class OrganizationService {
     );
 
     if (!organization) {
-      throw Errors.notFound("Organização");
+      throw Errors.notFound("Organization");
     }
 
     return organization;
@@ -60,10 +61,29 @@ export class OrganizationService {
       }),
     );
 
+    if (input.saasPlan === "autonomous") {
+      const profile = unwrap(
+        await getAdminClient().from("profiles").select("full_name, email, phone").eq("id", userId).maybeSingle(),
+      );
+      unwrap(
+        await getAdminClient().from("teachers").insert({
+          organization_id: organization.id,
+          profile_id: userId,
+          full_name: profile?.full_name ?? input.name,
+          email: profile?.email ?? null,
+          phone: profile?.phone ?? null,
+        }),
+      );
+    }
+
     return organization;
   }
 
   async update(orgId: string, input: UpdateInput) {
+    if (input.saasPlan === "autonomous") {
+      await assertFitsPlan(orgId, "autonomous");
+    }
+
     const organization = unwrap(
       await getAdminClient()
         .from("organizations")
@@ -73,6 +93,8 @@ export class OrganizationService {
           document: input.document,
           phone: input.phone,
           email: input.email,
+          ...(input.lessonRules ? { lesson_rules: input.lessonRules } : {}),
+          ...(input.logoSport ? { logo_sport: input.logoSport } : {}),
         })
         .eq("id", orgId)
         .select("*")
@@ -80,7 +102,7 @@ export class OrganizationService {
     );
 
     if (!organization) {
-      throw Errors.notFound("Organização");
+      throw Errors.notFound("Organization");
     }
 
     return organization;

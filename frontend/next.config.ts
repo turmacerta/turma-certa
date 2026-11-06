@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 import { resolve } from "node:path";
 
 const repoRoot = resolve(__dirname, "..");
-loadEnvConfig(repoRoot);
+loadEnvConfig(repoRoot, process.env.NODE_ENV !== "production", console, true);
 
 const nextConfig: NextConfig = {
   agentRules: false,

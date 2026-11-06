@@ -1,6 +1,3 @@
--- Turma Certa · 009
--- Backoffice: donos do SaaS, não donos da escola.
-
 create table if not exists public.platform_admins (
   profile_id uuid primary key references public.profiles (id) on delete cascade,
   created_at timestamptz not null default now()
@@ -49,7 +46,3 @@ grant all on public.platform_admins to service_role;
 
 notify pgrst, 'reload schema';
 
--- Opcional: promove um usuário já cadastrado (troque o e-mail).
--- insert into public.platform_admins (profile_id)
--- select id from public.profiles where lower(email) = lower('voce@turmacerta.com')
--- on conflict do nothing;

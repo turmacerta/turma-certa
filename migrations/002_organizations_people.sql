@@ -1,6 +1,3 @@
--- Turma Certa · 002
--- Cliente pagante (escola ou autônomo), usuários e fichas.
-
 create table if not exists public.organizations (
   id uuid primary key default gen_random_uuid(),
   name text not null,

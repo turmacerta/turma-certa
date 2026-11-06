@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="176 176 1580 1580" width="512" height="512">
+  <defs>
+    <clipPath id="ball">
+      <circle cx="908" cy="435" r="110"/>
+    </clipPath>
+  </defs>
+  <g fill="none" stroke="#a32fd9" stroke-width="97">
+    <path d="M958 300 A716 666 0 0 0 958 1632"/>
+    <path d="M958 600 A388 366 0 0 0 958 1332"/>
+  </g>
+  <g fill="#a32fd9">
+    <rect x="940" y="252" width="799" height="95"/>
+    <rect x="861" y="1290" width="97" height="390"/>
+  </g>
+  <path fill="#adf743" fill-rule="evenodd" d="M736 525H1739V929H1433V1680H1043V929H736ZM866 663V793H1172V1543H1302V793H1609V663Z"/>
+  <circle cx="908" cy="435" r="110" fill="#adf743"/>
+  <g clip-path="url(#ball)" fill="none" stroke="#a32fd9" stroke-width="22">
+    <path d="M806 386Q892 438 874 548"/>
+    <path d="M974 340Q930 425 1000 505"/>
+  </g>
+</svg>

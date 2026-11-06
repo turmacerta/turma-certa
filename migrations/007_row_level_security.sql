@@ -1,7 +1,3 @@
--- Turma Certa · 007
--- RLS multi-tenant. O backend usa service role (bypassa RLS) e ainda
--- filtra por organização. Estas policies protegem acesso direto via anon key.
-
 create or replace function public.is_org_member(org_id uuid)
 returns boolean
 language sql

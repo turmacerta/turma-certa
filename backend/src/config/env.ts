@@ -19,14 +19,24 @@ function parseEmailList(value: string | undefined) {
   );
 }
 
+const corsList = (process.env.CORS_ORIGIN ?? "http://localhost:3000")
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean);
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? 3001),
-  corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:3000",
+  /** String or string[] for the cors package. */
+  corsOrigin: corsList.length <= 1 ? (corsList[0] ?? "http://localhost:3000") : corsList,
+  /** Canonical web app origin (invites / redirects). */
+  appOrigin: corsList[0] ?? "http://localhost:3000",
   supabaseUrl,
   supabaseAnonKey,
   supabaseServiceRoleKey,
   platformAdminEmails: parseEmailList(process.env.PLATFORM_ADMIN_EMAILS),
+  leadsEmail: process.env.LEADS_EMAIL ?? "turmacerta1910@gmail.com",
+  cronSecret: process.env.CRON_SECRET ?? "",
 };
 
 export function isSupabaseConfigured(): boolean {

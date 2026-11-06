@@ -1,6 +1,3 @@
--- Turma Certa · 003
--- Unidades, quadras, esportes, níveis, professores, alunos e turmas.
-
 create table if not exists public.units (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,

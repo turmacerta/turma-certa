@@ -1,7 +1,3 @@
--- Turma Certa · 001
--- Rode no SQL Editor do Supabase, na ordem dos arquivos.
--- Extensões, enums e funções auxiliares.
-
 create extension if not exists "pgcrypto";
 
 do $$

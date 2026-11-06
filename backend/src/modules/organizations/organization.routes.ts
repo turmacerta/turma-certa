@@ -1,5 +1,7 @@
 import { Router } from "express";
-import { requireAuth, requireOrgStaff } from "../../middleware/auth";
+import { monthlyEstimate } from "../../shared/pricing";
+import { getAdminClient, unwrap } from "../../infrastructure/supabase/client";
+import { requireAuth, requireOrgMember, requirePermission } from "../../middleware/auth";
 import { asyncHandler, created, ok, parseBody } from "../../shared/http";
 import {
   createOrganizationSchema,
@@ -38,16 +40,45 @@ organizationRouter.post(
 organizationRouter.get(
   "/:orgId",
   requireAuth,
-  requireOrgStaff,
+  requireOrgMember,
   asyncHandler(async (req, res) => {
     return ok(res, await organizationService.getById(req.params.orgId));
   }),
 );
 
+organizationRouter.get(
+  "/:orgId/pricing",
+  requireAuth,
+  requireOrgMember,
+  requirePermission("settings.manage", "team.manage"),
+  asyncHandler(async (req, res) => ok(res, await monthlyEstimate(req.params.orgId))),
+);
+
+organizationRouter.get(
+  "/:orgId/notifications",
+  requireAuth,
+  requireOrgMember,
+  requirePermission("students.view_all", "schedule.view_all"),
+  asyncHandler(async (req, res) =>
+    ok(
+      res,
+      unwrap(
+        await getAdminClient()
+          .from("notifications")
+          .select("id, kind, title, body, recipient_name, created_at")
+          .eq("organization_id", req.params.orgId)
+          .order("created_at", { ascending: false })
+          .limit(20),
+      ),
+    ),
+  ),
+);
+
 organizationRouter.patch(
   "/:orgId",
   requireAuth,
-  requireOrgStaff,
+  requireOrgMember,
+  requirePermission("settings.manage"),
   asyncHandler(async (req, res) => {
     const input = parseBody(updateOrganizationSchema, req.body);
     return ok(res, await organizationService.update(req.params.orgId, input));

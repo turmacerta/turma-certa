@@ -1,7 +1,8 @@
 import { getAdminClient, unwrap } from "../../infrastructure/supabase/client";
 import { Errors } from "../../shared/errors";
+import { classService } from "../classes/class.service";
 import type { z } from "zod";
-import type { billingPlanSchema, subscriptionSchema } from "./billing.schema";
+import type { billingPlanSchema, billingPlanUpdateSchema, subscriptionSchema } from "./billing.schema";
 
 function addDays(date: Date, days: number) {
   const copy = new Date(date);
@@ -14,11 +15,24 @@ export class BillingService {
     const invoices = unwrap(
       await getAdminClient()
         .from("invoices")
-        .select("id, amount_cents, status, due_date, student:students(id, full_name)")
+        .select("id, amount_cents, status, due_date, student:students(id, full_name, phone, email)")
         .eq("organization_id", orgId)
         .order("due_date", { ascending: false })
-        .limit(50),
+        .limit(1000),
     );
+
+    const reminders = await getAdminClient()
+      .from("notifications")
+      .select("student_id, created_at")
+      .eq("organization_id", orgId)
+      .eq("kind", "payment_reminder")
+      .order("created_at", { ascending: false })
+      .limit(500);
+    const lastReminders: Record<string, string> = {};
+    for (const row of reminders.data ?? []) {
+      const studentId = row.student_id as string;
+      lastReminders[studentId] ??= row.created_at as string;
+    }
 
     const subscriptions = unwrap(
       await getAdminClient()
@@ -43,9 +57,13 @@ export class BillingService {
     const openInvoices = (invoices ?? []).filter((item) =>
       ["pending", "overdue"].includes(item.status as string),
     );
+    const withStatus = (invoices ?? []).map((item) =>
+      item.status === "pending" && (item.due_date as string) < today ? { ...item, status: "overdue" } : item,
+    );
 
     return {
-      invoices: invoices ?? [],
+      invoices: withStatus,
+      lastReminders,
       subscriptions: subscriptions ?? [],
       renewalsDue: renewals,
       openAmountCents: openInvoices.reduce(
@@ -55,14 +73,51 @@ export class BillingService {
     };
   }
 
+  async markPaid(orgId: string, invoiceId: string) {
+    const invoice = unwrap(
+      await getAdminClient()
+        .from("invoices")
+        .update({ status: "paid", paid_at: new Date().toISOString() })
+        .eq("organization_id", orgId)
+        .eq("id", invoiceId)
+        .in("status", ["pending", "overdue"])
+        .select("id, status, paid_at")
+        .maybeSingle(),
+    );
+    if (!invoice) {
+      throw Errors.notFound("Invoice");
+    }
+    return invoice;
+  }
+
   async listPlans(orgId: string) {
     return unwrap(
       await getAdminClient()
         .from("billing_plans")
         .select("*")
         .eq("organization_id", orgId)
+        .order("is_active", { ascending: false })
         .order("name"),
     );
+  }
+
+  async updatePlan(orgId: string, planId: string, input: z.infer<typeof billingPlanUpdateSchema>) {
+    const changes = {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.lessonsPerCycle !== undefined ? { lessons_per_cycle: input.lessonsPerCycle } : {}),
+      ...(input.cycleDays !== undefined ? { cycle_days: input.cycleDays } : {}),
+      ...(input.priceCents !== undefined ? { price_cents: input.priceCents } : {}),
+      ...(input.isActive !== undefined ? { is_active: input.isActive } : {}),
+      ...(input.sportId !== undefined ? { sport_id: input.sportId } : {}),
+      ...(input.weeklyClasses !== undefined ? { weekly_classes: input.weeklyClasses } : {}),
+    };
+    const plan = unwrap(
+      await getAdminClient().from("billing_plans").update(changes).eq("organization_id", orgId).eq("id", planId).select("*").maybeSingle(),
+    );
+    if (!plan) {
+      throw Errors.notFound("Plan");
+    }
+    return plan;
   }
 
   async createPlan(orgId: string, input: z.infer<typeof billingPlanSchema>) {
@@ -76,6 +131,8 @@ export class BillingService {
           lessons_per_cycle: input.lessonsPerCycle ?? null,
           cycle_days: input.cycleDays,
           price_cents: input.priceCents,
+          sport_id: input.sportId ?? null,
+          weekly_classes: input.weeklyClasses ?? null,
         })
         .select("*")
         .single(),
@@ -93,7 +150,11 @@ export class BillingService {
     );
 
     if (!plan) {
-      throw Errors.notFound("Plano");
+      throw Errors.notFound("Plan");
+    }
+
+    if (!plan.is_active) {
+      throw Errors.conflict("This package is archived.", "PLAN_ARCHIVED");
     }
 
     const student = unwrap(
@@ -106,7 +167,21 @@ export class BillingService {
     );
 
     if (!student) {
-      throw Errors.notFound("Aluno");
+      throw Errors.notFound("Student");
+    }
+
+    const classIds = [...new Set(input.classIds)];
+    if (plan.weekly_classes && classIds.length !== plan.weekly_classes) {
+      throw Errors.conflict("Pick one class for each weekly lesson.", "PACKAGE_CLASSES");
+    }
+    if (classIds.length) {
+      const classes = unwrap(
+        await getAdminClient().from("class_groups").select("id, sport_id, format").eq("organization_id", orgId).eq("is_active", true).in("id", classIds),
+      ) as Array<{ id: string; sport_id: string; format: string }>;
+      const fits = classes.length === classIds.length && classes.every((item) => (!plan.sport_id || item.sport_id === plan.sport_id) && item.format === plan.format);
+      if (!fits) {
+        throw Errors.conflict("The classes do not match the package.", "PACKAGE_CLASSES");
+      }
     }
 
     const start = new Date().toISOString().slice(0, 10);
@@ -145,10 +220,15 @@ export class BillingService {
           student_id: input.studentId,
           kind: "regular",
           quantity: plan.lessons_per_cycle,
-          reason: "Adesão de plano",
+          reason: "plan_signup",
           expires_at: end,
         }),
       );
+    }
+
+    for (const classId of classIds) {
+      const occupancy = unwrap(await getAdminClient().from("class_group_occupancy").select("vacancies").eq("class_group_id", classId).maybeSingle());
+      await classService.enroll(orgId, classId, { studentId: input.studentId, status: occupancy && (occupancy.vacancies as number) <= 0 ? "waitlist" : "active" });
     }
 
     return subscription;
@@ -165,7 +245,7 @@ export class BillingService {
     );
 
     if (!subscription) {
-      throw Errors.notFound("Assinatura");
+      throw Errors.notFound("Subscription");
     }
 
     return unwrap(

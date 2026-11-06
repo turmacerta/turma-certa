@@ -1,27 +1,83 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 :root {
-  --ink: #14221c;
-  --forest: #1c3d30;
-  --clay: #c45c26;
-  --clay-dark: #9a4318;
-  --sand: #f4eee4;
-  --paper: #fbf8f2;
-  --line: #e3d9c9;
-  --muted: #6b6258;
+  --bg: #f6f6f9;
+  --bg-glow: #f1edfa;
+  --surface: #ffffff;
+  --surface-2: #f4f4f8;
+  --ink: #1d1b2b;
+  --muted: #6a6780;
+  --line: #e6e5ee;
+  --primary: #7b3fd0;
+  --primary-hover: #6a31bc;
+  --primary-soft: #f2ecfc;
+  --on-primary: #ffffff;
+  --accent: #9bd63f;
+  --accent-soft: #eef8de;
+  --on-accent: #1d1b2b;
+  --success: #17804a;
+  --success-soft: #e5f5ec;
+  --warning: #b45309;
+  --warning-soft: #fef3c7;
+  --danger: #c22f3c;
+  --danger-soft: #fdecee;
+  --ring: rgb(123 63 208 / 0.2);
+  --shadow: 0 1px 2px rgb(29 27 43 / 0.04), 0 4px 14px rgb(29 27 43 / 0.04);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: #17142a;
+  --bg-glow: #221b40;
+  --surface: #1f1b36;
+  --surface-2: #262142;
+  --ink: #f2f0fa;
+  --muted: #a9a3c2;
+  --line: #322c52;
+  --primary: #b8f25e;
+  --primary-hover: #a8e64a;
+  --primary-soft: #2c2650;
+  --on-primary: #17142a;
+  --accent: #c37ef0;
+  --accent-soft: #2e2752;
+  --on-accent: #ffffff;
+  --success: #5fd496;
+  --success-soft: #1a3a2e;
+  --warning: #f0c06a;
+  --warning-soft: #3a3020;
+  --danger: #f2848b;
+  --danger-soft: #3f1f2c;
+  --ring: rgb(184 242 94 / 0.28);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.18), 0 10px 28px rgb(0 0 0 / 0.22);
+  color-scheme: dark;
 }
 
 @theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
   --color-ink: var(--ink);
-  --color-forest: var(--forest);
-  --color-clay: var(--clay);
-  --color-clay-dark: var(--clay-dark);
-  --color-sand: var(--sand);
-  --color-paper: var(--paper);
-  --color-line: var(--line);
   --color-muted: var(--muted);
-  --font-sans: var(--font-manrope);
-  --font-display: var(--font-fraunces);
+  --color-line: var(--line);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-on-primary: var(--on-primary);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-sora);
+  --shadow-soft: var(--shadow);
 }
 
 html {
@@ -29,18 +85,186 @@ html {
 }
 
 body {
-  background: var(--paper);
+  background:
+    radial-gradient(1200px 600px at 100% -10%, var(--bg-glow), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--ink);
   font-family: var(--font-sans), sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .display {
-  font-family: var(--font-display), serif;
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: -0.025em;
+}
+
+.grid > * {
+  min-width: 0;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
 
 .court-grid {
   background-image:
-    linear-gradient(to right, rgb(28 61 48 / 0.06) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(28 61 48 / 0.06) 1px, transparent 1px);
+    linear-gradient(to right, color-mix(in srgb, var(--ink) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--ink) 6%, transparent) 1px, transparent 1px);
   background-size: 48px 48px;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes logo-hop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  35% {
+    transform: translateY(-22%) scale(1.04);
+  }
+  55% {
+    transform: translateY(0) scale(1.08, 0.92);
+  }
+  70% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes loading-bar {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+.logo-hop {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: logo-hop 1.1s ease-in-out infinite;
+}
+
+.loading-bar {
+  animation: loading-bar 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-hop,
+  .loading-bar {
+    animation: none;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.25s ease-out both;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.18s ease-out both;
+}
+
+.animate-slide-in {
+  animation: slide-in 0.22s ease-out both;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--ink);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface-2) inset;
+  transition: background-color 9999s;
+}
+
+:focus-visible {
+  outline: none;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, color-mix(in srgb, var(--line) 60%, var(--surface-2)) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+
+  .animate-fade-up,
+  .animate-scale-in,
+  .animate-slide-in {
+    animation: none;
+  }
 }
