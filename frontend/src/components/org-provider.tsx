@@ -263,7 +263,8 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   }
 
   if (!value) {
-    return <Onboarding profile={profile} isPlatformAdmin={staffMode} onCreated={load} />;
+    // Pass raw platform-admin flag (not staffMode) so customer mode cannot hide the backoffice escape hatch.
+    return <Onboarding profile={profile} isPlatformAdmin={isPlatformAdmin} onCreated={load} />;
   }
 
   return <OrgContext.Provider value={value}>{children}</OrgContext.Provider>;

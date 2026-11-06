@@ -56,6 +56,7 @@ function LoginForm() {
     "password-updated": { tone: "success" as const, title: t.auth.login.passwordUpdatedTitle, text: t.auth.login.passwordUpdatedText },
     "link-expired": { tone: "warning" as const, title: t.auth.login.linkExpiredTitle, text: t.auth.login.linkExpiredText },
     "signed-out": { tone: "info" as const, title: t.auth.login.signedOutTitle, text: t.auth.login.signedOutText },
+    "session-replaced": { tone: "warning" as const, title: t.auth.login.sessionReplacedTitle, text: t.auth.login.sessionReplacedText },
   };
   const activeNotice = notice && notice in notices ? notices[notice as keyof typeof notices] : null;
 

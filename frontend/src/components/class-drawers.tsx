@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BellRing, CalendarPlus, Pencil, Plus, Trash2, UserMinus, UserPlus } from "lucide-react";
+import { BellRing, Pencil, Plus, Trash2, UserMinus, UserPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import { autoClassName, classNickname, classTitle, scheduleSummary } from "@/lib/classes";
 import { errorMessage } from "@/lib/errors";
@@ -407,20 +407,6 @@ export function ClassDetailDrawer({
     });
   }
 
-  async function generateSessions() {
-    if (!classId) {
-      return;
-    }
-    const ok = await confirm({ title: t.classes.detail.generateTitle, description: t.classes.detail.generateText, confirmLabel: t.classes.detail.generateLessons });
-    if (!ok) {
-      return;
-    }
-    await run("generate", async () => {
-      await api(`${base}/schedule/generate`, { method: "POST", body: JSON.stringify({ classGroupId: classId, weeks: 4 }) });
-      toast({ message: t.classes.detail.generated });
-    });
-  }
-
   async function notify() {
     if (!classId) {
       return;
@@ -457,10 +443,6 @@ export function ClassDetailDrawer({
             <Button variant="outline" onClick={notify} loading={busy === "notify"} disabled={full}>
               <BellRing className="h-4 w-4" />
               {t.classes.detail.notifyVacancy}
-            </Button>
-            <Button onClick={generateSessions} loading={busy === "generate"}>
-              <CalendarPlus className="h-4 w-4" />
-              {t.classes.detail.generateLessons}
             </Button>
           </>
         )

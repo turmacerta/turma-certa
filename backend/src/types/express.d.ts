@@ -11,6 +11,7 @@ declare global {
         actingRole?: "owner" | "admin" | "teacher" | "student";
         actingTeacherId?: string;
       };
+      accessToken?: string;
       orgRole?: "owner" | "admin" | "teacher" | "student";
       permissions?: Set<string>;
       memberships?: Array<{

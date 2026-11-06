@@ -11,8 +11,6 @@ import type {
   vacancyAlertSchema,
 } from "./class.schema";
 
-const INITIAL_WEEKS = 8;
-
 export class ClassService {
   async list(orgId: string, teacherId: string | null = null) {
     let query = getAdminClient()
@@ -138,7 +136,7 @@ export class ClassService {
         ),
       );
 
-      await scheduleService.generate(orgId, { classGroupId: classGroup.id as string, weeks: INITIAL_WEEKS });
+      await scheduleService.ensureHorizon({ orgId, classGroupId: classGroup.id as string });
     }
 
     return classGroup;
@@ -183,7 +181,7 @@ export class ClassService {
       }
       await this.clearFutureSessions(classId);
       if (input.schedules.length) {
-        await scheduleService.generate(orgId, { classGroupId: classId, weeks: INITIAL_WEEKS });
+        await scheduleService.ensureHorizon({ orgId, classGroupId: classId });
       }
     }
     return this.get(orgId, classId);

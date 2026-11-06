@@ -41,7 +41,7 @@ export async function invite(email: string) {
   if (profile) {
     return { profileId: profile.id, invited: false };
   }
-  const { data, error } = await getAdminClient().auth.admin.inviteUserByEmail(normalized, { redirectTo: `${env.corsOrigin}/reset-password` });
+  const { data, error } = await getAdminClient().auth.admin.inviteUserByEmail(normalized, { redirectTo: `${env.appOrigin}/reset-password` });
   if (error || !data.user) {
     throw Errors.conflict(error?.message ?? "Invite failed.", "INVITE_FAILED");
   }
@@ -235,9 +235,9 @@ export class TeamService {
     if (!profile?.email) {
       throw Errors.notFound("Member");
     }
-    const { error } = await getAdminClient().auth.admin.inviteUserByEmail(profile.email as string, { redirectTo: `${env.corsOrigin}/reset-password` });
+    const { error } = await getAdminClient().auth.admin.inviteUserByEmail(profile.email as string, { redirectTo: `${env.appOrigin}/reset-password` });
     if (error) {
-      const link = await getAdminClient().auth.resetPasswordForEmail(profile.email as string, { redirectTo: `${env.corsOrigin}/reset-password` });
+      const link = await getAdminClient().auth.resetPasswordForEmail(profile.email as string, { redirectTo: `${env.appOrigin}/reset-password` });
       if (link.error) throw Errors.conflict(link.error.message, "INVITE_FAILED");
     }
     unwrap(await getAdminClient().from("organization_members").update({ invited_at: new Date().toISOString() }).eq("id", memberId));

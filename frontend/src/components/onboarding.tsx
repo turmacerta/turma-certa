@@ -10,6 +10,8 @@ import { weekdayShort } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { ROUTES } from "@/lib/navigation";
 import { SPORTS, SportIcon } from "@/lib/sports";
+import { writeStorage } from "@/lib/client-store";
+import { CUSTOMER_MODE_KEY, SUPPORT_ORG_KEY, VIEW_AS_KEY, VIEW_TEACHER_KEY } from "@/lib/staff";
 import { createBrowserSupabase } from "@/lib/supabase/client";
 import type { Profile, SaasPlan } from "@/lib/types";
 import { BrandMark, LogoMark } from "./brand";
@@ -235,7 +237,16 @@ export function Onboarding({
             </div>
             {isPlatformAdmin ? (
               <p className="mt-6 text-sm">
-                <Link href={ROUTES.admin} className="font-bold text-primary hover:underline">
+                <Link
+                  href={ROUTES.admin}
+                  className="font-bold text-primary hover:underline"
+                  onClick={() => {
+                    writeStorage(CUSTOMER_MODE_KEY, "");
+                    writeStorage(SUPPORT_ORG_KEY, "");
+                    writeStorage(VIEW_AS_KEY, "");
+                    writeStorage(VIEW_TEACHER_KEY, "");
+                  }}
+                >
                   {ob.goToBackoffice}
                 </Link>
               </p>

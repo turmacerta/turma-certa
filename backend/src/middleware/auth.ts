@@ -4,15 +4,26 @@ import { getAdminClient, getAuthClient, unwrap } from "../infrastructure/supabas
 import { Errors } from "../shared/errors";
 import { asyncHandler } from "../shared/http";
 import { orgRoles, permissionsFor, type MemberRole, type Permission } from "../shared/permissions";
+import { isMissingSessionColumn, jwtPayload, jwtSessionId } from "../shared/session";
 
 const ACTING_ROLES: MemberRole[] = ["owner", "admin", "teacher", "student"];
 
-export const requireAuth = asyncHandler(async (req, _res, next) => {
+async function authenticate(req: Request, options?: { skipSessionCheck?: boolean }) {
   const header = req.header("authorization");
   const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
 
   if (!token) {
     throw Errors.unauthenticated();
+  }
+
+  // Check active session before getUser: after another device claims,
+  // GoTrue may revoke this session and getUser would only return UNAUTHENTICATED.
+  const claims = jwtPayload(token);
+  if (!options?.skipSessionCheck && claims?.sub && claims.session_id) {
+    if (claims.exp && claims.exp * 1000 < Date.now()) {
+      throw Errors.unauthenticated();
+    }
+    await assertActiveSession(claims.sub, token);
   }
 
   const { data, error } = await getAuthClient().auth.getUser(token);
@@ -32,6 +43,7 @@ export const requireAuth = asyncHandler(async (req, _res, next) => {
     isPlatformAdmin: isStaff && !customerMode,
     ...(acting ? { actingRole, actingTeacherId: req.header("x-act-as-teacher") || undefined } : {}),
   };
+  req.accessToken = token;
 
   const memberships = unwrap(
     await getAdminClient()
@@ -45,7 +57,15 @@ export const requireAuth = asyncHandler(async (req, _res, next) => {
     role: row.role as MemberRole,
     roleId: (row.role_id as string | null | undefined) ?? null,
   }));
+}
 
+export const requireAuth = asyncHandler(async (req, _res, next) => {
+  await authenticate(req);
+  next();
+});
+
+export const requireAuthForSessionClaim = asyncHandler(async (req, _res, next) => {
+  await authenticate(req, { skipSessionCheck: true });
   next();
 });
 
@@ -111,6 +131,31 @@ export async function scopedTeacher(req: Request, viewAll: Permission) {
 
 function isMissingTable(message: string) {
   return message.includes("schema cache") || message.includes("does not exist");
+}
+
+async function assertActiveSession(userId: string, token: string) {
+  const sessionId = jwtSessionId(token);
+  if (!sessionId) {
+    return;
+  }
+
+  const { data, error } = await getAdminClient()
+    .from("profiles")
+    .select("active_session_id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingSessionColumn(error.message)) {
+      return;
+    }
+    throw Errors.database(error.message);
+  }
+
+  const active = (data?.active_session_id as string | null | undefined) ?? null;
+  if (active && active !== sessionId) {
+    throw Errors.sessionReplaced();
+  }
 }
 
 async function resolvePlatformAdmin(userId: string, email: string | undefined) {

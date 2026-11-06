@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { can, requireAuth, requireOrgMember, requirePermission, scopedTeacher } from "../../middleware/auth";
-import { asyncHandler, created, ok, parseBody } from "../../shared/http";
-import { cancelSessionSchema, generateSessionsSchema } from "./schedule.schema";
+import { asyncHandler, ok, parseBody } from "../../shared/http";
+import { cancelSessionSchema } from "./schedule.schema";
 import { scheduleService } from "./schedule.service";
+import { HORIZON_DAYS } from "../../shared/timezone";
 
 export const scheduleRouter = Router({ mergeParams: true });
 
@@ -13,18 +14,9 @@ scheduleRouter.get(
   asyncHandler(async (req, res) => {
     const from = String(req.query.from ?? new Date().toISOString());
     const toDate = new Date();
-    toDate.setDate(toDate.getDate() + 14);
+    toDate.setDate(toDate.getDate() + HORIZON_DAYS + 1);
     const to = String(req.query.to ?? toDate.toISOString());
     return ok(res, await scheduleService.list(req.params.orgId, from, to, await scopedTeacher(req, "schedule.view_all")));
-  }),
-);
-
-scheduleRouter.post(
-  "/generate",
-  requirePermission("classes.manage"),
-  asyncHandler(async (req, res) => {
-    const input = parseBody(generateSessionsSchema, req.body);
-    return created(res, await scheduleService.generate(req.params.orgId, input));
   }),
 );
 

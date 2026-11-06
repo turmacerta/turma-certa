@@ -13,6 +13,8 @@ export class AppError extends Error {
 export const Errors = {
   unauthenticated: () =>
     new AppError("Sign in to continue.", 401, "UNAUTHENTICATED"),
+  sessionReplaced: () =>
+    new AppError("This account signed in on another device.", 401, "SESSION_REPLACED"),
   forbidden: () =>
     new AppError("You do not have permission for this action.", 403, "FORBIDDEN"),
   notFound: (entity: string) =>

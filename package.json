@@ -3,12 +3,16 @@
   "private": true,
   "workspaces": [
     "frontend",
-    "backend"
+    "backend",
+    "mobile",
+    "packages/*"
   ],
   "scripts": {
     "dev": "concurrently -n web,api -c cyan,magenta \"npm run dev -w @turma-certa/frontend\" \"npm run dev -w @turma-certa/backend\"",
     "dev:frontend": "npm run dev -w @turma-certa/frontend",
     "dev:backend": "npm run dev -w @turma-certa/backend",
+    "dev:mobile": "concurrently -n mobile,api -c green,magenta \"npm run start -w @turma-certa/mobile\" \"npm run dev -w @turma-certa/backend\"",
+    "dev:mobile:only": "npm run start -w @turma-certa/mobile",
     "build": "npm run build -w @turma-certa/backend && npm run build -w @turma-certa/frontend",
     "lint": "npm run lint -w @turma-certa/frontend"
   },

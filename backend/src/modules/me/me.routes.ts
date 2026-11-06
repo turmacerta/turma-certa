@@ -1,15 +1,55 @@
 import { Router, type Request } from "express";
 import { getAdminClient, unwrap } from "../../infrastructure/supabase/client";
+import { clientIp } from "../../shared/client-ip";
 import { Errors } from "../../shared/errors";
 import { asyncHandler, ok } from "../../shared/http";
-import { requireAuth } from "../../middleware/auth";
+import { requireAuth, requireAuthForSessionClaim } from "../../middleware/auth";
 import { orgRoles, permissionsFor, previewPermissions, resolveRole, type MemberRole } from "../../shared/permissions";
 import { parseBody } from "../../shared/http";
 import { photoSchema } from "../../shared/photo.schema";
 import { uploadPhoto } from "../../shared/photos";
+import { isMissingSessionColumn, jwtSessionId } from "../../shared/session";
 import { scheduleService } from "../schedule/schedule.service";
 
 export const meRouter = Router();
+
+meRouter.post(
+  "/session",
+  requireAuthForSessionClaim,
+  asyncHandler(async (req, res) => {
+    const userId = req.user?.id;
+    const token = req.accessToken;
+    if (!userId || !token) {
+      throw Errors.unauthenticated();
+    }
+
+    const sessionId = jwtSessionId(token);
+    const ip = clientIp(req);
+    const patch: Record<string, unknown> = {
+      last_login_at: new Date().toISOString(),
+      last_login_ip: ip,
+    };
+    if (sessionId) {
+      patch.active_session_id = sessionId;
+    }
+
+    const { error: updateError } = await getAdminClient().from("profiles").update(patch).eq("id", userId);
+    if (updateError && !isMissingSessionColumn(updateError.message)) {
+      throw Errors.database(updateError.message);
+    }
+
+    const { error: signOutError } = await getAdminClient().auth.admin.signOut(token, "others");
+    if (signOutError) {
+      throw Errors.database(signOutError.message);
+    }
+
+    return ok(res, {
+      last_login_ip: ip,
+      last_login_at: patch.last_login_at,
+      active_session_id: sessionId,
+    });
+  }),
+);
 
 async function supportOrganization(req: Request) {
   const orgId = typeof req.query.supportOrgId === "string" ? req.query.supportOrgId : "";

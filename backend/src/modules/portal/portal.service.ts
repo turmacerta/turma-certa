@@ -3,6 +3,7 @@ import { getAdminClient, unwrap } from "../../infrastructure/supabase/client";
 import { Errors } from "../../shared/errors";
 import { orgRoles, permissionsFor, type MemberRole } from "../../shared/permissions";
 import { expiresIn, lessonRules } from "../../shared/rules";
+import { HORIZON_DAYS } from "../../shared/timezone";
 
 type StudentRow = {
   id: string;
@@ -110,7 +111,7 @@ export class PortalService {
 
     const regular = classIds.length
       ? ((unwrap(
-          await getAdminClient().from("class_sessions").select(SESSION_FIELDS).in("class_group_id", classIds).gte("starts_at", days(-30)).lt("starts_at", days(28)).order("starts_at"),
+          await getAdminClient().from("class_sessions").select(SESSION_FIELDS).in("class_group_id", classIds).gte("starts_at", days(-30)).lt("starts_at", days(HORIZON_DAYS + 1)).order("starts_at"),
         ) ?? []) as unknown as SessionRow[])
       : [];
 
@@ -211,7 +212,7 @@ export class PortalService {
       .in("class_group.sport_id", sports)
       .is("cancelled_at", null)
       .gte("starts_at", new Date().toISOString())
-      .lt("starts_at", days(21))
+      .lt("starts_at", days(HORIZON_DAYS + 1))
       .order("starts_at")
       .limit(60);
     if (sameLevel && student.class_level_id) query = query.eq("class_group.class_level_id", student.class_level_id);

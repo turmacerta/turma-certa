@@ -1,4 +1,5 @@
 import { apiUrl } from "./env";
+import { ROUTES } from "./navigation";
 import { actingHeaders } from "./staff";
 import { createBrowserSupabase } from "./supabase/client";
 
@@ -43,6 +44,17 @@ async function authHeader(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${session.access_token}` };
 }
 
+async function handleSessionReplaced() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (window.location.pathname.startsWith(ROUTES.login)) {
+    return;
+  }
+  await createBrowserSupabase()?.auth.signOut({ scope: "local" });
+  window.location.assign(`${ROUTES.login}?notice=session-replaced`);
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -63,6 +75,9 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok || "error" in payload) {
     const error = "error" in payload ? payload.error : undefined;
+    if (response.status === 401 && error?.code === "SESSION_REPLACED") {
+      await handleSessionReplaced();
+    }
     throw new RequestError(error?.message ?? "Request failed", response.status, error?.code, error?.details);
   }
 

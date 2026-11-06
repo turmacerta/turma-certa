@@ -15,9 +15,11 @@ import { teacherRouter } from "./modules/teachers/teacher.routes";
 import { teamRouter } from "./modules/team/team.routes";
 import { portalRouter } from "./modules/portal/portal.routes";
 import { leadRouter } from "./modules/leads/lead.routes";
+import { internalRouter } from "./modules/internal/internal.routes";
 
 export function createApp() {
   const app = express();
+  app.set("trust proxy", 1);
 
   app.use(
     cors({
@@ -29,6 +31,7 @@ export function createApp() {
 
   app.use("/health", healthRouter);
   app.use("/api/v1/health", healthRouter);
+  app.use("/api/v1/internal", internalRouter);
   app.use("/api/v1/leads", leadRouter);
   app.use("/api/v1/me/students", portalRouter);
   app.use("/api/v1/me", meRouter);

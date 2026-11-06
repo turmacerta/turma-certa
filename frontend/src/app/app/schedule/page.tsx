@@ -1,16 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { SessionDrawer } from "@/components/session-drawer";
 import { FilterChips, Toolbar, ViewSwitcher } from "@/components/data-view";
 import { useOrg } from "@/components/org-provider";
-import { Dialog, useToast } from "@/components/overlay";
-import { Badge, Button, cn, EmptyState, ErrorState, IconButton, LoadingList, PageHeader, Select, Stepper } from "@/components/ui";
-import { api } from "@/lib/api";
+import { Badge, Button, cn, EmptyState, ErrorState, IconButton, LoadingList, PageHeader } from "@/components/ui";
 import { classTitle } from "@/lib/classes";
 import { useNow } from "@/lib/client-store";
-import { errorMessage } from "@/lib/errors";
 import { addDays, dateKey, startOfWeek } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { sportMeta, SportIcon } from "@/lib/sports";
@@ -62,7 +59,6 @@ export default function SchedulePage() {
   const [teacher, setTeacher] = useState("all");
   const [school, setSchool] = useState("all");
   const [selected, setSelected] = useState<SessionRow | null>(null);
-  const [generating, setGenerating] = useState(false);
   const now = useNow();
 
   const range = useMemo(() => {
@@ -121,8 +117,6 @@ export default function SchedulePage() {
   const showsToday = days.some((day) => dateKey(day) === todayKey);
   const step = mode === "day" ? 1 : mode === "list" ? 14 : 7;
   const title = mode === "day" ? format.longDate(range.start) : format.range(range.start, addDays(range.start, range.days - 1));
-  const canManage = can("classes.manage");
-
   const placed = mode === "day" ? layoutDay(visible) : [];
   const firstHour = Math.min(6, ...placed.map((item) => item.start.getHours()));
   const lastHour = Math.max(22, ...placed.map((item) => item.end.getHours() + (item.end.getMinutes() ? 1 : 0)));
@@ -140,14 +134,6 @@ export default function SchedulePage() {
       <PageHeader
         title={isTeacher ? t.nav.mySchedule : t.schedule.title}
         description={ownAgenda ? t.schedule.teacherDescription : t.schedule.description}
-        actions={
-          canManage ? (
-            <Button variant="outline" onClick={() => setGenerating(true)}>
-              <CalendarPlus className="h-4 w-4" />
-              {t.schedule.generate}
-            </Button>
-          ) : null
-        }
       />
 
       <Toolbar>
@@ -191,14 +177,6 @@ export default function SchedulePage() {
           icon={<CalendarDays />}
           title={t.schedule.emptyTitle}
           description={isTeacher ? t.schedule.teacherEmptyText : t.schedule.emptyText}
-          action={
-            canManage ? (
-              <Button onClick={() => setGenerating(true)}>
-                <CalendarPlus className="h-4 w-4" />
-                {t.schedule.generate}
-              </Button>
-            ) : null
-          }
         />
       ) : null}
 
@@ -335,9 +313,6 @@ export default function SchedulePage() {
           sessions.setData((sessions.data ?? []).map((item) => (item.id === updated.id ? updated : item)));
         }}
       />
-      {canManage ? (
-        <GenerateDialog open={generating} orgId={orgId} classes={classes.data ?? []} onClose={() => setGenerating(false)} onDone={() => void sessions.reload()} />
-      ) : null}
     </div>
   );
 }
@@ -358,59 +333,5 @@ function SessionChip({ session, title, sport, detail, onClick }: { session: Sess
       <span className="line-clamp-2 font-medium text-ink">{title}</span>
       {detail ? <span className="truncate text-muted">{detail}</span> : null}
     </button>
-  );
-}
-
-function GenerateDialog({ open, orgId, classes, onClose, onDone }: { open: boolean; orgId: string; classes: ClassRow[]; onClose: () => void; onDone: () => void }) {
-  const { t } = useI18n();
-  const toast = useToast();
-  const [classId, setClassId] = useState("");
-  const [weeks, setWeeks] = useState(4);
-  const [saving, setSaving] = useState(false);
-
-  async function submit() {
-    if (!classId) return;
-    setSaving(true);
-    try {
-      await api(`/api/v1/organizations/${orgId}/schedule/generate`, { method: "POST", body: JSON.stringify({ classGroupId: classId, weeks }) });
-      toast({ message: t.schedule.generated(weeks) });
-      onDone();
-      onClose();
-    } catch (err) {
-      toast({ message: errorMessage(err, t), tone: "error" });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title={t.schedule.generateTitle}
-      description={t.schedule.generateText}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            {t.common.cancel}
-          </Button>
-          <Button disabled={!classId} loading={saving} onClick={submit}>
-            {t.schedule.generateSubmit}
-          </Button>
-        </>
-      }
-    >
-      <div className="grid gap-4">
-        <Select
-          label={t.schedule.class}
-          searchable
-          placeholder={t.schedule.pickClass}
-          value={classId}
-          onChange={setClassId}
-          options={classes.map((item) => ({ value: item.id, label: classTitle(item, t), description: item.teacher?.full_name }))}
-        />
-        <Stepper label={t.schedule.weeks} value={weeks} onChange={setWeeks} min={1} max={12} suffix={t.schedule.weeksSuffix} />
-      </div>
-    </Dialog>
   );
 }
